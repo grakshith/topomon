@@ -1,8 +1,12 @@
 const path = require('path');
-// const { sigma } = require('./sigma.js/build/sigma.require');
+
+entry = {
+  core: './src/index.ts',
+  net: './src/websocket.js'
+}
 
 module.exports = {
-  entry: './src/index.ts',
+  entry: entry,
   mode: 'development',
   module: {
     rules: [
@@ -22,7 +26,7 @@ module.exports = {
     extensions: ['.tsx', '.ts', '.js'],
   },
   output: {
-    filename: 'bundle.js',
+    filename: '[name].js',
     path: path.resolve(__dirname, 'dist'),
   },
 };
