@@ -1,8 +1,8 @@
 const path = require('path');
+const webpack = require('webpack');
 
 entry = {
-  core: './src/index.ts',
-  net: './src/websocket.js'
+  core: './src/index.ts'
 }
 
 module.exports = {
@@ -28,5 +28,9 @@ module.exports = {
   output: {
     filename: '[name].js',
     path: path.resolve(__dirname, 'dist'),
+  },
+  devServer:{
+    contentBase: path.join(__dirname, 'dist'),
+    port: 9000,
   },
 };
