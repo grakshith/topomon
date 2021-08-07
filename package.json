@@ -22,6 +22,7 @@
     "graphology": "^0.20.0",
     "graphology-generators": "^0.11.0",
     "graphology-layout": "^0.4.0",
+    "graphology-layout-forceatlas2": "^0.6.1",
     "graphology-layout-noverlap": "^0.3.0",
     "http-server": "^0.12.3",
     "sigma": "^2.0.0-beta7"
