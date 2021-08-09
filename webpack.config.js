@@ -2,8 +2,10 @@ const path = require('path');
 const webpack = require('webpack');
 
 entry = {
-  core: './src/index.ts'
+  core: './src/client/index.ts'
 }
+
+// TODO: make the mode production 
 
 module.exports = {
   entry: entry,
