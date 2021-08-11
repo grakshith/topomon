@@ -68,7 +68,7 @@ const outputReducer: NoverlapNodeReducer = (key, attr) => {
 };
 
 // setup websocket connection
-const ws = new WebSocket('ws://localhost:8080');
+const ws = new WebSocket('ws://localhost:8080/ws');
 
 // Event listeners
 
