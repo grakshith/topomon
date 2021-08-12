@@ -54,11 +54,22 @@ func repl(handler *server.ConnectionHandler) {
 			fmt.Scanln(&targetNode)
 			removeEdgeMsg := server.MakeRemoveEdge(srcNode, targetNode)
 			handler.Send <- removeEdgeMsg
+		case "5":
+			var after string
+			fmt.Scanln(&after)
+			esClient, err := server.MakeESClient()
+			esClient.QueryTelemetryEvents("", after)
+			if err != nil {
+				continue
+			}
 		}
 	}
 }
 
 func main() {
+	// set log level
+	log.SetLevel(log.DebugLevel)
+
 	ctx, stopServer := context.WithCancel(context.Background())
 	httpServerDone := &sync.WaitGroup{}
 
