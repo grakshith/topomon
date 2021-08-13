@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"time"
 
 	"github.com/grakshith/topomon/src/server"
 	log "github.com/sirupsen/logrus"
@@ -55,12 +56,21 @@ func repl(handler *server.ConnectionHandler) {
 			removeEdgeMsg := server.MakeRemoveEdge(srcNode, targetNode)
 			handler.Send <- removeEdgeMsg
 		case "5":
-			var after string
-			fmt.Scanln(&after)
-			esClient, err := server.MakeESClient()
-			esClient.QueryTelemetryEvents("", after)
-			if err != nil {
-				continue
+			fmt.Println(time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339Nano))
+
+			var ts string = "2021-08-12T23:00:36.826439Z"
+
+			esClient, _ := server.MakeESClient()
+			hits, _ := esClient.QueryTelemetryEvents("", ts, 0, 0)
+			respSize := len(hits)
+			for respSize == server.DefaultLocalConfig.ESQuerySize {
+				searchAfter := hits[len(hits)-1].Sort[0]
+				log.Info(searchAfter)
+				log.Info(hits[len(hits)-1].Source.Timestamp)
+				log.Info(hits[len(hits)-1].Source.Message)
+				log.Info(hits[len(hits)-1].Source.ParsedData)
+				hits, _ = esClient.QueryTelemetryEvents("", ts, 0, searchAfter)
+				respSize = len(hits)
 			}
 		}
 	}

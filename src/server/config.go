@@ -11,6 +11,7 @@ type Config struct {
 	MetricsEndpoint   string `json:"metricsEndpoint"`
 	Channel           string `json:"channel"`
 	Network           string `json:"network"`
+	ESQuerySize       int    `json:"esQuerySize"`
 }
 
 var DefaultLocalConfig = Config{
@@ -20,6 +21,7 @@ var DefaultLocalConfig = Config{
 	MetricsEndpoint:   "http://telemetry.rakshith-s1.algodev.network:9090",
 	Channel:           "rakshith-s1",
 	Network:           "rakshith-s1",
+	ESQuerySize:       1000,
 }
 
 var CurrentConfig = DefaultLocalConfig

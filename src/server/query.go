@@ -6,10 +6,13 @@ import (
 	"io"
 	"strings"
 
+	telemetryspec "github.com/algorand/go-algorand/logging/telemetryspec"
 	"github.com/elastic/go-elasticsearch/v6"
 	log "github.com/sirupsen/logrus"
 )
 
+// this is the query to fetch the three message types we are interested in
+// this looks for relevant messages having a timestamp greater than some value
 const query = `
 	"query":{
 		"bool":{
@@ -23,36 +26,59 @@ const query = `
 			"filter":{
 				"range":{
 					"@timestamp":{
-						"gte": %s
+						"gt": "%s"
 					}
 				}
 			}
 		}
 	},
-	"size": 100,
 	"sort":{
 		"@timestamp":"asc"
 	}`
 
+// type to parse the response of elasticsearch
 type ESResponse struct {
 	Took int
 	Hits struct {
-		Total int
-		Hits  []struct {
-			ID     string `json:"_id"`
-			Source struct {
-				Host      string          `json:"Host"`
-				Timestamp string          `json:"@timestamp"`
-				Message   string          `json:"Message"`
-				Data      json.RawMessage `json:"Data"`
-			} `json:"_source"`
-		}
+		Total      int
+		HitDetails []Hit `json:"hits"`
 	}
 }
 
+// Hit stores each elasticsearch query hit
+type Hit struct {
+	ID     string `json:"_id"`
+	Source struct {
+		Host      string
+		Timestamp string `json:"@timestamp"`
+		Message   string
+		RawData   json.RawMessage `json:"Data"`
+		// parsed data stores the concrete type corresponding to the message type
+		ParsedData interface{}
+	} `json:"_source"`
+	Sort []int
+}
+
+// Types for each of the message types
+// These are wrappers to telemetryspec types
+type ConnectPeerDetails struct {
+	Details telemetryspec.PeerEventDetails `json:"details"`
+}
+
+type PeerConnectionDetails struct {
+	Details telemetryspec.PeersConnectionDetails `json:"details"`
+}
+
+type DisconnectPeerDetails struct {
+	Details telemetryspec.DisconnectPeerEventDetails `json:"details"`
+}
+
+// ESClient is the wrapper around the elasticsearch client
+// with some useful fields used in the queries
 type ESClient struct {
-	es    *elasticsearch.Client
-	index string
+	es        *elasticsearch.Client
+	index     string
+	querySize int
 }
 
 func MakeESClient() (*ESClient, error) {
@@ -71,18 +97,24 @@ func MakeESClient() (*ESClient, error) {
 		return nil, err
 	}
 	log.Info("Initialized Elasticsearch client")
-	log.Info(es.Info())
+	log.Debug(es.Info())
 
 	esClient := &ESClient{
-		es:    es,
-		index: CurrentConfig.BuildESIndexName(),
+		es:        es,
+		index:     CurrentConfig.BuildESIndexName(),
+		querySize: CurrentConfig.ESQuerySize,
 	}
 
 	return esClient, nil
 }
 
-func (esClient *ESClient) QueryTelemetryEvents(queryString, timestamp string, after ...string) {
-	builtQuery := buildQueryString(queryString, timestamp, after...)
+// QueryTelemetryEvents queries elasticsearch for the telemetry messages defined
+// in queryString whose timestamps are greater than timestamp returning a page
+// of the matching hits of length defined by the size parameter. In case, there is
+// more than one page, the after parameter can be used to fetch the additional pages.
+// The after parameter is a sort value returned by elasticsearch with each hit.
+func (esClient *ESClient) QueryTelemetryEvents(queryString, timestamp string, size int, after int) ([]Hit, error) {
+	builtQuery := esClient.buildQueryString(queryString, timestamp, size, after)
 	es := esClient.es
 	res, err := es.Search(es.Search.WithIndex(esClient.index), es.Search.WithBody(builtQuery))
 	if err != nil {
@@ -93,44 +125,72 @@ func (esClient *ESClient) QueryTelemetryEvents(queryString, timestamp string, af
 		var e map[string]interface{}
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
 			log.Error("Error: ", err)
-			return
+			return nil, err
 		}
 		log.Errorf("[%s] %s: %s", res.Status(), e["error"].(map[string]interface{})["type"], e["error"].(map[string]interface{})["reason"])
-		return
+		return nil, err
 	}
-	log.Info("Result: ", res.String())
 
 	var esResponse ESResponse
 	if err := json.NewDecoder(res.Body).Decode(&esResponse); err != nil {
 		log.Error("Error: ", err)
-		return
+		return nil, err
 	}
 
-	var id string
-	for _, hit := range esResponse.Hits.Hits {
-		id = hit.ID
+	var parsed interface{}
+
+	for i, _ := range esResponse.Hits.HitDetails {
+		// parse each message into appropriate types
+		hit := &esResponse.Hits.HitDetails[i]
+		message := hit.Source.Message
+		switch message {
+		case "/Network/PeerConnections":
+			var eventDetails PeerConnectionDetails
+			if err := json.Unmarshal(hit.Source.RawData, &eventDetails); err != nil {
+				log.Error("Error while unmarshalling event: ", err)
+			}
+			parsed = eventDetails
+		case "/Network/ConnectPeer":
+			var eventDetails ConnectPeerDetails
+			if err := json.Unmarshal(hit.Source.RawData, &eventDetails); err != nil {
+				log.Error("Error while unmarshalling event: ", err)
+			}
+			parsed = eventDetails
+		case "/Network/DisconnectPeer":
+			var eventDetails DisconnectPeerDetails
+			if err := json.Unmarshal(hit.Source.RawData, &eventDetails); err != nil {
+				log.Error("Error while unmarshalling event: ", err)
+			}
+			parsed = eventDetails
+		}
+		hit.Source.ParsedData = parsed
 	}
-
-	log.Info(id)
-
+	return esResponse.Hits.HitDetails, nil
 }
 
-func buildQueryString(queryString, timestamp string, after ...string) io.Reader {
+// buildQueryString builds a query string based on the parameters timestamp, size and after.
+// Look at the description for QueryTelemetryEvents for more information.
+func (esClient *ESClient) buildQueryString(queryString, timestamp string, size int, after int) io.Reader {
 	var builder strings.Builder
 	builder.WriteString("{\n")
 	if queryString == "" {
-		builder.WriteString(query)
+		builder.WriteString(fmt.Sprintf(query, timestamp))
 	} else {
-		builder.WriteString(fmt.Sprintf(queryString, timestamp))
+		builder.WriteString(queryString)
 	}
 
-	if len(after) > 0 && after[0] != "" && after[0] != "null" {
+	builder.WriteString(",\n")
+	if size == 0 {
+		builder.WriteString(fmt.Sprintf(`	"size": %d`, esClient.querySize))
+	} else {
+		builder.WriteString(fmt.Sprintf(`	"size": %d`, size))
+	}
+
+	if after != 0 {
 		builder.WriteString(",\n")
-		builder.WriteString(fmt.Sprintf(`	"search_after": [%s]`, after[0]))
+		builder.WriteString(fmt.Sprintf(`	"search_after": [%d]`, after))
 	}
 	builder.WriteString("\n}")
-
-	// log.Info("Query: ", builder.String())
 
 	return strings.NewReader(builder.String())
 }
