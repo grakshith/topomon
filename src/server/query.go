@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	telemetryspec "github.com/algorand/go-algorand/logging/telemetryspec"
@@ -200,7 +201,9 @@ func (esClient *ESClient) buildQueryString(queryString, timestamp string, size i
 	return strings.NewReader(builder.String())
 }
 
-func (esClient *ESClient) Run(ctx context.Context) {
+func (esClient *ESClient) Run(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	ticker := time.NewTicker(time.Duration(DefaultLocalConfig.ESQueryRefreshPeriod) * time.Second)
 
 	// initially query for messages from the past hour
@@ -209,6 +212,7 @@ func (esClient *ESClient) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			log.Info("Terminating query service")
 			return
 		case <-ticker.C:
 			searchAfter := 0

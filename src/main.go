@@ -81,7 +81,7 @@ func main() {
 	log.SetLevel(log.DebugLevel)
 
 	ctx, stopServer := context.WithCancel(context.Background())
-	httpServerDone := &sync.WaitGroup{}
+	servicesWG := &sync.WaitGroup{}
 
 	handler := server.MakeConnectionHandler(ctx)
 	esClient, err := server.MakeESClient()
@@ -92,19 +92,30 @@ func main() {
 	router := server.ConfigureURLS(handler)
 	httpServer := &http.Server{Addr: server.DefaultLocalConfig.BuildBindAddr(), Handler: router}
 
-	httpServerDone.Add(1)
+	servicesWG.Add(1)
 	go func(wg *sync.WaitGroup) {
 		defer wg.Done()
-		if err := httpServer.ListenAndServe(); err != nil {
-			return
+		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
+			log.Error("http.ListenAndServe(): ", err)
 		}
-	}(httpServerDone)
+		log.Info("Terminating HTTP server")
+	}(servicesWG)
 
 	// spin up services
-	go handler.Run(ctx)
-	go esClient.Run(ctx)
-	repl(handler)
+	servicesWG.Add(2)
+	go handler.Run(ctx, servicesWG)
+	go esClient.Run(ctx, servicesWG)
+
+	// register SIGINT signal
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt)
+	go func() {
+		<-signalChan
+		log.Info("Received SIGINT, shutting down")
+		stopServer()
+	}()
+
+	<-ctx.Done()
 	httpServer.Shutdown(ctx)
-	httpServerDone.Wait()
-	stopServer()
+	servicesWG.Wait()
 }

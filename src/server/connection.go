@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -139,11 +140,14 @@ func (handler *ConnectionHandler) broadcastMessage(message interface{}) {
 	}
 }
 
-func (handler *ConnectionHandler) Run(ctx context.Context) {
+func (handler *ConnectionHandler) Run(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	for {
 		select {
 		case <-ctx.Done():
 			handler.shutDown()
+			log.Info("Terminating connection handler")
 			return
 		case client := <-handler.join:
 			log.Info("Client join: ", client.conn.RemoteAddr().String())
@@ -197,8 +201,9 @@ func (client *Client) writeComms(ctx context.Context) {
 	// ticker to send ping messages
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
-		log.Info("Leaving writeComms: ", client.conn.RemoteAddr().String())
+		log.Debug("Leaving writeComms: ", client.conn.RemoteAddr().String())
 		ticker.Stop()
+		close(client.send)
 		client.conn.Close()
 	}()
 
@@ -212,7 +217,7 @@ func (client *Client) writeComms(ctx context.Context) {
 				log.Info("Error writing to client: ", err)
 				return
 			}
-			log.Info("Sent ping to client: ", client.conn.RemoteAddr().String())
+			log.Debug("Sent ping to client: ", client.conn.RemoteAddr().String())
 		case message, ok := <-client.send:
 			client.conn.SetWriteDeadline(time.Now().Add(writeDeadline))
 			if !ok {
@@ -245,7 +250,7 @@ func (client *Client) writeComms(ctx context.Context) {
 			if err := w.Close(); err != nil {
 				return
 			}
-			log.Info("Sending message to client: ", client.conn.RemoteAddr().String())
+			log.Debug("Sending message to client: ", client.conn.RemoteAddr().String())
 
 		}
 
