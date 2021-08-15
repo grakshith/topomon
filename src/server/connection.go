@@ -164,9 +164,9 @@ func (handler *ConnectionHandler) Run(ctx context.Context, wg *sync.WaitGroup) {
 }
 
 func (handler *ConnectionHandler) shutDown() {
-	for client := range handler.clients {
-		client.conn.Close()
-	}
+	// for client := range handler.clients {
+	// 	client.conn.Close()
+	// }
 	close(handler.join)
 	close(handler.leave)
 	close(handler.Send)
@@ -176,15 +176,21 @@ func (client *Client) readComms(ctx context.Context) {
 	client.conn.SetReadLimit(256)
 	client.conn.SetReadDeadline(time.Now().Add(pongWait))
 	client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
-	defer func() {
+
+	var ctxClosed bool
+	defer func(ctxClosed bool) {
 		log.Info("Leaving readComms: ", client.conn.RemoteAddr().String())
-		client.handler.leave <- client
-		client.conn.Close()
-	}()
+		if !ctxClosed {
+			client.handler.leave <- client
+		}
+		close(client.send)
+		// client.conn.Close()
+	}(ctxClosed)
 
 	for {
 		select {
 		case <-ctx.Done():
+			ctxClosed = true
 			return
 		default:
 		}
@@ -201,9 +207,9 @@ func (client *Client) writeComms(ctx context.Context) {
 	// ticker to send ping messages
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
-		log.Debug("Leaving writeComms: ", client.conn.RemoteAddr().String())
+		log.Info("Leaving writeComms: ", client.conn.RemoteAddr().String())
 		ticker.Stop()
-		close(client.send)
+		// close(client.send)
 		client.conn.Close()
 	}()
 
@@ -221,7 +227,7 @@ func (client *Client) writeComms(ctx context.Context) {
 		case message, ok := <-client.send:
 			client.conn.SetWriteDeadline(time.Now().Add(writeDeadline))
 			if !ok {
-				client.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				// client.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
