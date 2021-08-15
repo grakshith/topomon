@@ -84,6 +84,10 @@ func main() {
 	httpServerDone := &sync.WaitGroup{}
 
 	handler := server.MakeConnectionHandler(ctx)
+	esClient, err := server.MakeESClient()
+	if err != nil {
+		return
+	}
 
 	router := server.ConfigureURLS(handler)
 	httpServer := &http.Server{Addr: server.DefaultLocalConfig.BuildBindAddr(), Handler: router}
@@ -96,7 +100,9 @@ func main() {
 		}
 	}(httpServerDone)
 
+	// spin up services
 	go handler.Run(ctx)
+	go esClient.Run(ctx)
 	repl(handler)
 	httpServer.Shutdown(ctx)
 	httpServerDone.Wait()

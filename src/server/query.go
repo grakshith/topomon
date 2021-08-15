@@ -1,13 +1,16 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	telemetryspec "github.com/algorand/go-algorand/logging/telemetryspec"
 	"github.com/elastic/go-elasticsearch/v6"
+	"github.com/enriquebris/goconcurrentqueue"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -76,9 +79,10 @@ type DisconnectPeerDetails struct {
 // ESClient is the wrapper around the elasticsearch client
 // with some useful fields used in the queries
 type ESClient struct {
-	es        *elasticsearch.Client
-	index     string
-	querySize int
+	es                    *elasticsearch.Client
+	index                 string
+	querySize             int
+	telemetryMessageQueue *goconcurrentqueue.FIFO
 }
 
 func MakeESClient() (*ESClient, error) {
@@ -100,9 +104,10 @@ func MakeESClient() (*ESClient, error) {
 	log.Debug(es.Info())
 
 	esClient := &ESClient{
-		es:        es,
-		index:     CurrentConfig.BuildESIndexName(),
-		querySize: CurrentConfig.ESQuerySize,
+		es:                    es,
+		index:                 CurrentConfig.BuildESIndexName(),
+		querySize:             CurrentConfig.ESQuerySize,
+		telemetryMessageQueue: goconcurrentqueue.NewFIFO(),
 	}
 
 	return esClient, nil
@@ -139,7 +144,7 @@ func (esClient *ESClient) QueryTelemetryEvents(queryString, timestamp string, si
 
 	var parsed interface{}
 
-	for i, _ := range esResponse.Hits.HitDetails {
+	for i := range esResponse.Hits.HitDetails {
 		// parse each message into appropriate types
 		hit := &esResponse.Hits.HitDetails[i]
 		message := hit.Source.Message
@@ -193,4 +198,46 @@ func (esClient *ESClient) buildQueryString(queryString, timestamp string, size i
 	builder.WriteString("\n}")
 
 	return strings.NewReader(builder.String())
+}
+
+func (esClient *ESClient) Run(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+
+	// initially query for messages from the past hour
+	queryTimestamp := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339Nano)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			searchAfter := 0
+			var lastTimestamp string
+
+			for {
+				hits, err := esClient.QueryTelemetryEvents("", queryTimestamp, 0, searchAfter)
+				if err != nil {
+					break
+				}
+
+				for _, hit := range hits {
+					esClient.telemetryMessageQueue.Enqueue(hit)
+				}
+
+				respSize := len(hits)
+				if respSize == 0 {
+					break
+				}
+
+				searchAfter = hits[len(hits)-1].Sort[0]
+				lastTimestamp = hits[len(hits)-1].Source.Timestamp
+				log.Debug("Query last timestamp: ", lastTimestamp)
+
+			}
+			if lastTimestamp != "" {
+				queryTimestamp = lastTimestamp
+				log.Debug("Query timestamp updated: ", queryTimestamp)
+			}
+		}
+	}
 }
