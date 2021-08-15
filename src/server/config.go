@@ -5,23 +5,25 @@ import (
 )
 
 type Config struct {
-	Host              string `json:"host"`
-	Port              string `json:"port"`
-	TelemetryEndpoint string `json:"telemetryEndpoint"`
-	MetricsEndpoint   string `json:"metricsEndpoint"`
-	Channel           string `json:"channel"`
-	Network           string `json:"network"`
-	ESQuerySize       int    `json:"esQuerySize"`
+	Host                 string `json:"host"`
+	Port                 string `json:"port"`
+	TelemetryEndpoint    string `json:"telemetryEndpoint"`
+	MetricsEndpoint      string `json:"metricsEndpoint"`
+	Channel              string `json:"channel"`
+	Network              string `json:"network"`
+	ESQuerySize          int    `json:"esQuerySize"`
+	ESQueryRefreshPeriod int    `json:"eqQueryRefreshPeriod"`
 }
 
 var DefaultLocalConfig = Config{
-	Host:              "",
-	Port:              "8080",
-	TelemetryEndpoint: "http://telemetry.rakshith-s1.algodev.network:9105",
-	MetricsEndpoint:   "http://telemetry.rakshith-s1.algodev.network:9090",
-	Channel:           "rakshith-s1",
-	Network:           "rakshith-s1",
-	ESQuerySize:       1000,
+	Host:                 "",
+	Port:                 "8080",
+	TelemetryEndpoint:    "http://telemetry.rakshith-s1.algodev.network:9105",
+	MetricsEndpoint:      "http://telemetry.rakshith-s1.algodev.network:9090",
+	Channel:              "rakshith-s1",
+	Network:              "rakshith-s1",
+	ESQuerySize:          1000,
+	ESQueryRefreshPeriod: 2,
 }
 
 var CurrentConfig = DefaultLocalConfig
