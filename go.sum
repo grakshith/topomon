@@ -2,6 +2,7 @@ github.com/algorand/go-algorand v0.0.0-20210813171952-852a8a94741b h1:+8mZzApzsB
 github.com/algorand/go-algorand v0.0.0-20210813171952-852a8a94741b/go.mod h1:OHgE11gypiNBPQzngOs/JU314IjDNMx6R8t9iAWt47g=
 github.com/algorand/go-codec v1.1.2/go.mod h1:A3YI4V24jUUnU1eNekNmx2fLi60FvlNssqOiUsyfNM8=
 github.com/algorand/go-codec/codec v0.0.0-20190507210007-269d70b6135d/go.mod h1:qm6LyXvDa1+uZJxaVg8X+OEjBqt/zDinDa2EohtTDxU=
+github.com/algorand/go-deadlock v0.2.1 h1:TQPQwWAB133bS5uwHpmrgH5hCMyZK5hnUW26aqWMvq4=
 github.com/algorand/go-deadlock v0.2.1/go.mod h1:HgdF2cwtBIBCL7qmUaozuG/UIZFR6PLpSMR58pvWiXE=
 github.com/algorand/graphtrace v0.0.0-20201117160756-e524ed1a6f64/go.mod h1:qFtQmC+kmsfnLfS9j3xgKtzsWyozemL5ek1R4dWZa5c=
 github.com/algorand/msgp v1.1.48/go.mod h1:LtOntbYiCHj/Sl/Sqxtf8CZOrDt2a8Dv3tLaS6mcnUE=
@@ -70,6 +71,7 @@ github.com/miekg/dns v1.1.27/go.mod h1:KNUDUusw/aVsxyTYZM1oqvCicbwhgbNgztCETuNZ7
 github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e/go.mod h1:zD1mROLANZcx1PVRCS0qkT7pwLkGfwJo4zjcN/Tysno=
 github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d/go.mod h1:YUTz3bUH2ZwIWBy3CJBeOBEugqcmXREj14T+iG/4k4U=
 github.com/olivere/elastic v6.2.14+incompatible/go.mod h1:J+q1zQJTgAz9woqsbVRqGeB5G1iqDKVBWLNSYW8yfJ8=
+github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 h1:q2e307iGHPdTGp0hoxKjt1H5pDo6utceo3dQVK3I5XQ=
 github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5/go.mod h1:jvVRKCrJTQWu0XVbaOlby/2lO20uSCHEMzzplHXte1o=
 github.com/philhofer/fwd v1.0.0/go.mod h1:gk3iGcWd9+svBvR0sR+KPcfE+RNWozjowpeBVG3ZVNU=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=

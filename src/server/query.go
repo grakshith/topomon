@@ -10,6 +10,7 @@ import (
 	"time"
 
 	telemetryspec "github.com/algorand/go-algorand/logging/telemetryspec"
+	"github.com/algorand/go-deadlock"
 	"github.com/elastic/go-elasticsearch/v6"
 	"github.com/enriquebris/goconcurrentqueue"
 	log "github.com/sirupsen/logrus"
@@ -39,6 +40,10 @@ const query = `
 	"sort":{
 		"@timestamp":"asc"
 	}`
+
+const PeerConnectionsMessage = "/Network/PeerConnections"
+const ConnectPeerMessage = "/Network/ConnectPeer"
+const DisconnectPeerMessage = "/Network/DisconnectPeer"
 
 // type to parse the response of elasticsearch
 type ESResponse struct {
@@ -84,6 +89,12 @@ type ESClient struct {
 	index                 string
 	querySize             int
 	telemetryMessageQueue *goconcurrentqueue.FIFO
+	metrics               queueMetrics
+}
+
+type queueMetrics struct {
+	metricsMutex            *deadlock.RWMutex
+	latestEnqueuedTimestamp string
 }
 
 func MakeESClient() (*ESClient, error) {
@@ -109,6 +120,10 @@ func MakeESClient() (*ESClient, error) {
 		index:                 CurrentConfig.BuildESIndexName(),
 		querySize:             CurrentConfig.ESQuerySize,
 		telemetryMessageQueue: goconcurrentqueue.NewFIFO(),
+		metrics: queueMetrics{
+			metricsMutex:            &deadlock.RWMutex{},
+			latestEnqueuedTimestamp: time.Time{}.UTC().Format(time.RFC3339Nano),
+		},
 	}
 
 	return esClient, nil
@@ -226,6 +241,9 @@ func (esClient *ESClient) Run(ctx context.Context, wg *sync.WaitGroup) {
 
 				for _, hit := range hits {
 					esClient.telemetryMessageQueue.Enqueue(hit)
+					esClient.metrics.metricsMutex.Lock()
+					esClient.metrics.latestEnqueuedTimestamp = hit.Source.Timestamp
+					esClient.metrics.metricsMutex.Unlock()
 				}
 
 				respSize := len(hits)
