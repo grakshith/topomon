@@ -89,6 +89,8 @@ func main() {
 		return
 	}
 
+	ngRefresher := server.MakeNetworkGraph(handler, esClient)
+
 	router := server.ConfigureURLS(handler)
 	httpServer := &http.Server{Addr: server.DefaultLocalConfig.BuildBindAddr(), Handler: router}
 
@@ -102,9 +104,10 @@ func main() {
 	}(servicesWG)
 
 	// spin up services
-	servicesWG.Add(2)
+	servicesWG.Add(3)
 	go handler.Run(ctx, servicesWG)
 	go esClient.Run(ctx, servicesWG)
+	go ngRefresher.Run(ctx, servicesWG)
 
 	// register SIGINT signal
 	signalChan := make(chan os.Signal, 1)
