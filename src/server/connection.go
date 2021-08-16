@@ -92,6 +92,9 @@ type ConnectionHandler struct {
 
 	// channel for outgoing messages from the ConnectionHandler
 	Send chan interface{}
+
+	// channel to bootstrap the client with the network map
+	bootstrapChan chan *Client
 }
 
 // Client represents the client's websocket connection
@@ -116,11 +119,12 @@ const writeDeadline = 10 * time.Second
 
 func MakeConnectionHandler(ctx context.Context) *ConnectionHandler {
 	handler := &ConnectionHandler{
-		ctx:     ctx,
-		clients: make(map[*Client]bool),
-		join:    make(chan *Client),
-		leave:   make(chan *Client),
-		Send:    make(chan interface{}),
+		ctx:           ctx,
+		clients:       make(map[*Client]bool),
+		join:          make(chan *Client),
+		leave:         make(chan *Client),
+		Send:          make(chan interface{}),
+		bootstrapChan: make(chan *Client),
 	}
 	return handler
 }
@@ -151,6 +155,7 @@ func (handler *ConnectionHandler) Run(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		case client := <-handler.join:
 			log.Info("Client join: ", client.conn.RemoteAddr().String())
+			handler.bootstrapChan <- client
 			handler.clients[client] = true
 		case client := <-handler.leave:
 			log.Info("Client leave: ", client.conn.RemoteAddr().String())
@@ -177,20 +182,18 @@ func (client *Client) readComms(ctx context.Context) {
 	client.conn.SetReadDeadline(time.Now().Add(pongWait))
 	client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 
-	var ctxClosed bool
-	defer func(ctxClosed bool) {
+	defer func() {
 		log.Info("Leaving readComms: ", client.conn.RemoteAddr().String())
-		if !ctxClosed {
+		if err := ctx.Err(); err == nil {
 			client.handler.leave <- client
 		}
 		close(client.send)
 		// client.conn.Close()
-	}(ctxClosed)
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			ctxClosed = true
 			return
 		default:
 		}

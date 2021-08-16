@@ -104,6 +104,16 @@ ws.addEventListener('message', function(event){
         graph.dropEdge(edge);
         edgeMap.delete(edge);
         break;
+      case "NetworkGraph":
+        graph.clear()
+        wsEvent.nodes.forEach((node: NodeKey) => {
+          graph.addNode(node, {
+            x: Math.random(),
+            y: Math.random(),
+            size: 4,
+            label: node,
+          });
+        });
     }
     renderer.refresh();
     console.log("Refreshed");
