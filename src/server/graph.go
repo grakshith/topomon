@@ -10,7 +10,7 @@ import (
 )
 
 type NetworkGraphMessage struct {
-	MessageType string           `json:"Message"`
+	MessageType string           `json:"message"`
 	Nodes       []string         `json:"nodes"`
 	Edges       []nwGraphMsgEdge `json:"edges"`
 }
@@ -76,10 +76,10 @@ func (ng *NetworkGraph) dequeueTelemetryEvents(ctx context.Context) {
 		if !lastTimestamp.IsZero() && !hitTimestamp.IsZero() {
 			ng.messageLatency = lastTimestamp.Sub(hitTimestamp).Seconds()
 		}
-		if ng.messageLatency < 0 {
-			log.Debug("Last TS: ", lastTimestamp.Format(time.RFC3339Nano))
-			log.Debug("Hit TS: ", hitTimestamp.Format(time.RFC3339Nano))
-		}
+		// if ng.messageLatency < 0 {
+		// 	log.Debug("Last TS: ", lastTimestamp.Format(time.RFC3339Nano))
+		// 	log.Debug("Hit TS: ", hitTimestamp.Format(time.RFC3339Nano))
+		// }
 		ng.esClient.metrics.metricsMutex.Unlock()
 		ng.dequeChan <- hit
 	}
@@ -263,7 +263,7 @@ func (ng *NetworkGraph) Run(ctx context.Context, wg *sync.WaitGroup) {
 		case hit := <-ng.dequeChan:
 			additions, deletions := ng.calculateMapDelta(hit)
 			ng.esClient.metrics.metricsMutex.RLock()
-			log.Debug("TelemetryMessageQueue processing latency: ", ng.messageLatency)
+			// log.Debug("TelemetryMessageQueue processing latency: ", ng.messageLatency)
 			if ng.messageLatency > float64(CurrentConfig.MessageQueueThresholdLatency) {
 				ng.catchup = true
 				ng.esClient.metrics.metricsMutex.RUnlock()
