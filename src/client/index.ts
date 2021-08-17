@@ -1,4 +1,4 @@
-import  Graph from "graphology";
+import  DirectedGraph from "graphology";
 import randomLayout from "graphology-layout/random";
 import noverlap, { NoverlapNodeReducer } from "graphology-layout-noverlap";
 import { Attributes, EdgeKey, NodeKey } from "graphology-types";
@@ -12,7 +12,7 @@ import { globalize } from "./utils";
 const container = document.getElementById("sigma-container");
 
 // Create the graph structure
-const graph = new Graph();
+const graph = new DirectedGraph();
 
 let highlightedNodes = new Set();
 let highlightedEdges = new Set();
@@ -35,6 +35,8 @@ const edgeReducer = (edge: EdgeKey, data: Attributes) => {
 
 // SIgma settings
 const settings = {
+  defaultEdgeType: "arrow",
+  renderEdgeLabels: true,
   nodeReducer: nodeReducer,
   edgeReducer: edgeReducer,
   zIndex: true,
@@ -106,14 +108,22 @@ ws.addEventListener('message', function(event){
         break;
       case "NetworkGraph":
         graph.clear()
-        wsEvent.nodes.forEach((node: NodeKey) => {
+        nodeArray = [];
+        edgeMap = new Map();
+        wsEvent.nodes.forEach((node: string) => {
           graph.addNode(node, {
             x: Math.random(),
             y: Math.random(),
             size: 4,
             label: node,
           });
+          nodeArray.push(node);
         });
+        wsEvent.edges.forEach((edge:any) => {
+          var e = graph.addEdge(edge["source"], edge["target"]);
+          edgeMap.set(e, {"source": edge["source"], "target": edge["target"]})
+        });
+        break;
     }
     renderer.refresh();
     console.log("Refreshed");
