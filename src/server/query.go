@@ -56,16 +56,18 @@ type ESResponse struct {
 
 // Hit stores each elasticsearch query hit
 type Hit struct {
-	ID     string `json:"_id"`
-	Source struct {
-		Host      string
-		Timestamp string `json:"@timestamp"`
-		Message   string
-		RawData   json.RawMessage `json:"Data"`
-		// parsed data stores the concrete type corresponding to the message type
-		ParsedData interface{}
-	} `json:"_source"`
-	Sort []int
+	ID     string    `json:"_id"`
+	Source HitSource `json:"_source"`
+	Sort   []int
+}
+
+type HitSource struct {
+	Host      string
+	Timestamp string `json:"@timestamp"`
+	Message   string
+	RawData   json.RawMessage `json:"Data"`
+	// parsed data stores the concrete type corresponding to the message type
+	ParsedData interface{}
 }
 
 // Types for each of the message types
