@@ -108,30 +108,25 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			networkMap = &ng.invNetworkMap
 			invNetworkMap = &ng.networkMap
 		}
-		_, exists := ng.nodeMap[sourceNode]
-		if !exists {
-			// source node doesn't exist, send add node message
-			ng.nodeMap[sourceNode] = 0
-			addNodeMsg := MakeAddNode(sourceNode)
-			additions = append(additions, addNodeMsg)
-		}
-		_, exists = (*networkMap)[sourceNode]
+
+		_, exists := (*networkMap)[sourceNode]
 		if !exists {
 			(*networkMap)[sourceNode] = make(map[string]bool)
 		}
-		_, exists = ng.nodeMap[destNode]
-		if !exists {
-			// dest node doesn't exist, send add node message
-			ng.nodeMap[destNode] = 0
-			addNodeMsg := MakeAddNode(destNode)
-			additions = append(additions, addNodeMsg)
-		}
+
 		_, exists = (*networkMap)[sourceNode][destNode]
 		if !exists {
 			(*networkMap)[sourceNode][destNode] = true
 			if !checkInverseMappingExists(invNetworkMap, destNode, sourceNode) {
-				ng.nodeMap[sourceNode]++
-				ng.nodeMap[destNode]++
+				nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
+				if nodeMsg != nil {
+					additions = append(additions, nodeMsg)
+				}
+				nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, destNode, 1)
+				if nodeMsg != nil {
+					additions = append(additions, nodeMsg)
+				}
+
 				addEdgeMsg := MakeAddEdge(sourceNode, destNode)
 				additions = append(additions, addEdgeMsg)
 			}
@@ -160,16 +155,17 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		if exists {
 			delete((*networkMap)[sourceNode], destNode)
 			if checkInverseMappingExists(invNetworkMap, destNode, sourceNode) {
-				ng.nodeMap[sourceNode]--
-				if ng.nodeMap[sourceNode] == 0 {
-					removeNodeMsg := MakeRemoveNode(sourceNode)
-					deletions = append(deletions, removeNodeMsg)
+
+				nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
+				if nodeMsg != nil {
+					deletions = append(deletions, nodeMsg)
 				}
-				ng.nodeMap[destNode]--
-				if ng.nodeMap[destNode] == 0 {
-					removeNodeMsg := MakeRemoveNode(destNode)
-					deletions = append(deletions, removeNodeMsg)
+
+				nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, destNode, -1)
+				if nodeMsg != nil {
+					deletions = append(deletions, nodeMsg)
 				}
+
 				removeEdgeMsg := MakeRemoveEdge(sourceNode, destNode)
 				deletions = append(deletions, removeEdgeMsg)
 			}
@@ -192,6 +188,15 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			if _, exists := ng.invNetworkMap[sourceNode][peerHostname]; !exists {
 				// check if mapping exists in inverse map
 				if !checkInverseMappingExists(&ng.networkMap, peerHostname, sourceNode) {
+					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
+					if nodeMsg != nil {
+						additions = append(additions, nodeMsg)
+					}
+					nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, 1)
+					if nodeMsg != nil {
+						additions = append(additions, nodeMsg)
+					}
+
 					addEdgeMsg := MakeAddEdge(peerHostname, sourceNode)
 					additions = append(additions, addEdgeMsg)
 				}
@@ -202,7 +207,15 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		for peerHostname := range ng.invNetworkMap[sourceNode] {
 			if _, exists := latestIncomingMap[peerHostname]; !exists {
 				// check if mapping exists in inverse map
-				if !checkInverseMappingExists(&ng.networkMap, peerHostname, sourceNode) {
+				if checkInverseMappingExists(&ng.networkMap, peerHostname, sourceNode) {
+					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
+					if nodeMsg != nil {
+						deletions = append(deletions, nodeMsg)
+					}
+					nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, -1)
+					if nodeMsg != nil {
+						deletions = append(deletions, nodeMsg)
+					}
 					removeEdgeMsg := MakeRemoveEdge(peerHostname, sourceNode)
 					deletions = append(deletions, removeEdgeMsg)
 				}
@@ -220,6 +233,15 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		for peerHostname := range latestOutgoingMap {
 			if _, exists := ng.networkMap[sourceNode][peerHostname]; !exists {
 				if !checkInverseMappingExists(&ng.invNetworkMap, peerHostname, sourceNode) {
+					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
+					if nodeMsg != nil {
+						additions = append(additions, nodeMsg)
+					}
+					nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, 1)
+					if nodeMsg != nil {
+						additions = append(additions, nodeMsg)
+					}
+
 					addEdgeMsg := MakeAddEdge(sourceNode, peerHostname)
 					additions = append(additions, addEdgeMsg)
 				}
@@ -229,7 +251,16 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		// calculate deletions for outgoing peers
 		for peerHostname := range ng.networkMap[sourceNode] {
 			if _, exists := latestOutgoingMap[peerHostname]; !exists {
-				if !checkInverseMappingExists(&ng.invNetworkMap, peerHostname, sourceNode) {
+				if checkInverseMappingExists(&ng.invNetworkMap, peerHostname, sourceNode) {
+					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
+					if nodeMsg != nil {
+						deletions = append(deletions, nodeMsg)
+					}
+					nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, -1)
+					if nodeMsg != nil {
+						deletions = append(deletions, nodeMsg)
+					}
+
 					removeEdgeMsg := MakeRemoveEdge(sourceNode, peerHostname)
 					deletions = append(deletions, removeEdgeMsg)
 				}
@@ -240,6 +271,21 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 
 	}
 	return additions, deletions
+}
+
+func checkNodeMapForNodeChanges(nodeMap *map[string]int, node string, count int) interface{} {
+	if _, exists := (*nodeMap)[node]; !exists {
+		(*nodeMap)[node] = 1
+		addNodeMsg := MakeAddNode(node)
+		return addNodeMsg
+	}
+	(*nodeMap)[node] += count
+	if degree := (*nodeMap)[node]; degree == 0 {
+		delete(*nodeMap, node)
+		removeNodeMsg := MakeRemoveNode(node)
+		return removeNodeMsg
+	}
+	return nil
 }
 
 func checkInverseMappingExists(invMap *map[string]map[string]bool, srcNode string, destNode string) bool {
@@ -281,6 +327,7 @@ func (ng *NetworkGraph) makeNetworkGraphMessage() interface{} {
 	for srcNode, destMap := range ng.invNetworkMap {
 		for destNode := range destMap {
 			if _, exists := globalNwGraph[destNode][srcNode]; !exists {
+				globalNwGraph[srcNode][destNode] = true
 				nwGraphMsg.Edges = append(nwGraphMsg.Edges, nwGraphMsgEdge{SourceNode: destNode, DestNode: srcNode})
 			}
 		}
@@ -323,6 +370,7 @@ func (ng *NetworkGraph) Run(ctx context.Context, wg *sync.WaitGroup) {
 		case client := <-ng.handler.bootstrapChan:
 			if !ng.catchup {
 				message := ng.makeNetworkGraphMessage()
+				log.Info("Send: ", message)
 				ng.handler.unicastMessage(message, client)
 			}
 		}
