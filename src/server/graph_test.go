@@ -106,6 +106,23 @@ func TestCalculateMapDelta(t *testing.T) {
 	fmt.Println(ng.outgoingMap)
 	fmt.Println(ng.incomingMap)
 
+	fmt.Println("Query5.5")
+	queryHit5_5 := Hit{
+		Source: HitSource{
+			Host:    "A",
+			Message: ConnectPeerMessage,
+			ParsedData: ConnectPeerDetails{
+				Details: telemetryspec.PeerEventDetails{
+					HostName: "E",
+					Incoming: true,
+				},
+			},
+		},
+	}
+	additions, deletions = ng.calculateMapDelta(queryHit5_5)
+	require.Empty(t, additions)
+	require.Empty(t, deletions)
+
 	queryHit8 := Hit{
 		Source: HitSource{
 			Host:    "B",
