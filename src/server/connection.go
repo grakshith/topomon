@@ -139,7 +139,6 @@ func (handler *ConnectionHandler) unicastMessage(message interface{}, client *Cl
 }
 
 func (handler *ConnectionHandler) broadcastMessage(message interface{}) {
-	log.Info("Send: ", message)
 	for client := range handler.clients {
 		handler.unicastMessage(message, client)
 	}
