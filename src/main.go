@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,9 +79,29 @@ func repl(handler *server.ConnectionHandler) {
 	}
 }
 
+func formatFilePath(filePath string) string {
+	slash := strings.LastIndex(filePath, "/")
+	return filePath[slash+1:]
+}
+
 func main() {
 	// set log level
 	log.SetLevel(log.DebugLevel)
+	log.SetReportCaller(true)
+	jsonFormatter := &log.TextFormatter{
+		TimestampFormat: "2006-01-02T15:04:05.000000Z07:00",
+		FullTimestamp:   true,
+		CallerPrettyfier: func(f *runtime.Frame) (string, string) {
+			return "", fmt.Sprintf("%s:%d", formatFilePath(f.File), f.Line)
+		},
+	}
+	log.SetFormatter(jsonFormatter)
+	f, err := os.OpenFile("server.log", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		log.Error("Cannot open log file: ", err)
+	}
+	defer f.Close()
+	log.SetOutput(io.MultiWriter(f, os.Stdout))
 
 	ctx, stopServer := context.WithCancel(context.Background())
 	servicesWG := &sync.WaitGroup{}
