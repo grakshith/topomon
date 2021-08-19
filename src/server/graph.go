@@ -23,7 +23,8 @@ type nwGraphMsgEdge struct {
 type NetworkGraph struct {
 	ngMutex        *deadlock.RWMutex
 	networkMap     map[string]map[string]bool
-	invNetworkMap  map[string]map[string]bool
+	outgoingMap    map[string]map[string]bool
+	incomingMap    map[string]map[string]bool
 	nodeMap        map[string]int
 	handler        *ConnectionHandler
 	esClient       *ESClient
@@ -34,14 +35,15 @@ type NetworkGraph struct {
 
 func MakeNetworkGraph(handler *ConnectionHandler, esClient *ESClient) *NetworkGraph {
 	ng := &NetworkGraph{
-		ngMutex:       &deadlock.RWMutex{},
-		networkMap:    make(map[string]map[string]bool),
-		invNetworkMap: make(map[string]map[string]bool),
-		nodeMap:       make(map[string]int),
-		handler:       handler,
-		esClient:      esClient,
-		dequeChan:     make(chan Hit),
-		catchup:       true,
+		ngMutex:     &deadlock.RWMutex{},
+		networkMap:  make(map[string]map[string]bool),
+		outgoingMap: make(map[string]map[string]bool),
+		incomingMap: make(map[string]map[string]bool),
+		nodeMap:     make(map[string]int),
+		handler:     handler,
+		esClient:    esClient,
+		dequeChan:   make(chan Hit),
+		catchup:     true,
 	}
 	return ng
 }
@@ -101,12 +103,12 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		}
 		sourceNode := eventHost
 		destNode := connectPeerDetails.Details.HostName
-		networkMap := &ng.networkMap
-		invNetworkMap := &ng.invNetworkMap
+		networkMap := &ng.outgoingMap
+		invNetworkMap := &ng.incomingMap
 
 		if connectPeerDetails.Details.Incoming {
-			networkMap = &ng.invNetworkMap
-			invNetworkMap = &ng.networkMap
+			networkMap = &ng.incomingMap
+			invNetworkMap = &ng.outgoingMap
 		}
 
 		_, exists := (*networkMap)[sourceNode]
@@ -127,7 +129,14 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 					additions = append(additions, nodeMsg)
 				}
 
-				addEdgeMsg := MakeAddEdge(sourceNode, destNode)
+				var addEdgeMsg AddEdge
+				if connectPeerDetails.Details.Incoming {
+					addEdgeMsg = MakeAddEdge(destNode, sourceNode)
+					updateNetworkMap(ng.networkMap, destNode, sourceNode, true)
+				} else {
+					addEdgeMsg = MakeAddEdge(sourceNode, destNode)
+					updateNetworkMap(ng.networkMap, sourceNode, destNode, true)
+				}
 				additions = append(additions, addEdgeMsg)
 			}
 		}
@@ -139,12 +148,12 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		}
 		sourceNode := eventHost
 		destNode := disconnectPeerDetails.Details.HostName
-		networkMap := &ng.networkMap
-		invNetworkMap := &ng.invNetworkMap
+		networkMap := &ng.outgoingMap
+		invNetworkMap := &ng.incomingMap
 
 		if disconnectPeerDetails.Details.Incoming {
-			networkMap = &ng.invNetworkMap
-			invNetworkMap = &ng.networkMap
+			networkMap = &ng.incomingMap
+			invNetworkMap = &ng.outgoingMap
 		}
 		_, exists := (*networkMap)[sourceNode]
 		// source not present, return
@@ -166,7 +175,14 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 					deletions = append(deletions, nodeMsg)
 				}
 
-				removeEdgeMsg := MakeRemoveEdge(sourceNode, destNode)
+				var removeEdgeMsg RemoveEdge
+				if disconnectPeerDetails.Details.Incoming {
+					removeEdgeMsg = MakeRemoveEdge(destNode, sourceNode)
+					updateNetworkMap(ng.networkMap, destNode, sourceNode, false)
+				} else {
+					removeEdgeMsg = MakeRemoveEdge(sourceNode, destNode)
+					updateNetworkMap(ng.networkMap, sourceNode, destNode, false)
+				}
 				deletions = append(deletions, removeEdgeMsg)
 			}
 		}
@@ -185,9 +201,9 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 
 		// calculate additions for incoming peers
 		for peerHostname := range latestIncomingMap {
-			if _, exists := ng.invNetworkMap[sourceNode][peerHostname]; !exists {
+			if _, exists := ng.incomingMap[sourceNode][peerHostname]; !exists {
 				// check if mapping exists in inverse map
-				if !checkInverseMappingExists(&ng.networkMap, peerHostname, sourceNode) {
+				if !checkInverseMappingExists(&ng.outgoingMap, peerHostname, sourceNode) {
 					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
 					if nodeMsg != nil {
 						additions = append(additions, nodeMsg)
@@ -199,15 +215,16 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 
 					addEdgeMsg := MakeAddEdge(peerHostname, sourceNode)
 					additions = append(additions, addEdgeMsg)
+					updateNetworkMap(ng.networkMap, peerHostname, sourceNode, true)
 				}
 			}
 		}
 
 		// calculate deletions for incoming peers
-		for peerHostname := range ng.invNetworkMap[sourceNode] {
+		for peerHostname := range ng.incomingMap[sourceNode] {
 			if _, exists := latestIncomingMap[peerHostname]; !exists {
 				// check if mapping exists in inverse map
-				if checkInverseMappingExists(&ng.networkMap, peerHostname, sourceNode) {
+				if checkInverseMappingExists(&ng.outgoingMap, peerHostname, sourceNode) {
 					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
 					if nodeMsg != nil {
 						deletions = append(deletions, nodeMsg)
@@ -218,11 +235,12 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 					}
 					removeEdgeMsg := MakeRemoveEdge(peerHostname, sourceNode)
 					deletions = append(deletions, removeEdgeMsg)
+					updateNetworkMap(ng.networkMap, peerHostname, sourceNode, false)
 				}
 			}
 		}
 
-		ng.invNetworkMap[sourceNode] = latestIncomingMap
+		ng.incomingMap[sourceNode] = latestIncomingMap
 
 		latestOutgoingMap := make(map[string]bool)
 		for _, peer := range peerConnectionsDetails.Details.OutgoingPeers {
@@ -231,8 +249,8 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 
 		// calculate additions for outgoing peers
 		for peerHostname := range latestOutgoingMap {
-			if _, exists := ng.networkMap[sourceNode][peerHostname]; !exists {
-				if !checkInverseMappingExists(&ng.invNetworkMap, peerHostname, sourceNode) {
+			if _, exists := ng.outgoingMap[sourceNode][peerHostname]; !exists {
+				if !checkInverseMappingExists(&ng.incomingMap, peerHostname, sourceNode) {
 					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
 					if nodeMsg != nil {
 						additions = append(additions, nodeMsg)
@@ -244,14 +262,15 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 
 					addEdgeMsg := MakeAddEdge(sourceNode, peerHostname)
 					additions = append(additions, addEdgeMsg)
+					updateNetworkMap(ng.networkMap, sourceNode, peerHostname, true)
 				}
 			}
 		}
 
 		// calculate deletions for outgoing peers
-		for peerHostname := range ng.networkMap[sourceNode] {
+		for peerHostname := range ng.outgoingMap[sourceNode] {
 			if _, exists := latestOutgoingMap[peerHostname]; !exists {
-				if checkInverseMappingExists(&ng.invNetworkMap, peerHostname, sourceNode) {
+				if checkInverseMappingExists(&ng.incomingMap, peerHostname, sourceNode) {
 					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
 					if nodeMsg != nil {
 						deletions = append(deletions, nodeMsg)
@@ -263,11 +282,12 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 
 					removeEdgeMsg := MakeRemoveEdge(sourceNode, peerHostname)
 					deletions = append(deletions, removeEdgeMsg)
+					updateNetworkMap(ng.networkMap, sourceNode, peerHostname, false)
 				}
 			}
 		}
 
-		ng.networkMap[sourceNode] = latestOutgoingMap
+		ng.outgoingMap[sourceNode] = latestOutgoingMap
 
 	}
 	return additions, deletions
@@ -286,6 +306,21 @@ func checkNodeMapForNodeChanges(nodeMap *map[string]int, node string, count int)
 		return removeNodeMsg
 	}
 	return nil
+}
+
+func updateNetworkMap(networkMap map[string]map[string]bool, sourceNode string, targetNode string, value bool) {
+	_, exists := networkMap[sourceNode]
+	switch value {
+	case true:
+		if !exists {
+			networkMap[sourceNode] = make(map[string]bool)
+		}
+		networkMap[sourceNode][targetNode] = value
+	case false:
+		if exists {
+			delete(networkMap[sourceNode], targetNode)
+		}
+	}
 }
 
 func checkInverseMappingExists(invMap *map[string]map[string]bool, srcNode string, destNode string) bool {
@@ -310,28 +345,31 @@ func (ng *NetworkGraph) makeNetworkGraphMessage() interface{} {
 	// log.Debug("Out map: ", ng.networkMap)
 	// log.Debug("In map: ", ng.invNetworkMap)
 
-	globalNwGraph := make(map[string]map[string]bool)
-
 	for node := range ng.nodeMap {
 		nwGraphMsg.Nodes = append(nwGraphMsg.Nodes, node)
-		globalNwGraph[node] = make(map[string]bool)
+		log.Debug("Global NW node map: ", node)
 	}
 
 	for srcNode, destMap := range ng.networkMap {
 		for destNode := range destMap {
 			nwGraphMsg.Edges = append(nwGraphMsg.Edges, nwGraphMsgEdge{SourceNode: srcNode, DestNode: destNode})
-			globalNwGraph[srcNode][destNode] = true
+			log.Debug("Global NW map: ", srcNode, "->", destNode)
 		}
 	}
 
-	for srcNode, destMap := range ng.invNetworkMap {
-		for destNode := range destMap {
-			if _, exists := globalNwGraph[destNode][srcNode]; !exists {
-				globalNwGraph[srcNode][destNode] = true
-				nwGraphMsg.Edges = append(nwGraphMsg.Edges, nwGraphMsgEdge{SourceNode: destNode, DestNode: srcNode})
-			}
-		}
-	}
+	// for srcNode, destMap := range ng.outgoingMap {
+	// 	for destNode := range destMap {
+	// 		nwGraphMsg.Edges = append(nwGraphMsg.Edges, nwGraphMsgEdge{SourceNode: srcNode, DestNode: destNode})
+	// 	}
+	// }
+
+	// for srcNode, destMap := range ng.incomingMap {
+	// 	for destNode := range destMap {
+	// 		if _, exists := globalNwGraph[destNode][srcNode]; !exists {
+	// 			nwGraphMsg.Edges = append(nwGraphMsg.Edges, nwGraphMsgEdge{SourceNode: destNode, DestNode: srcNode})
+	// 		}
+	// 	}
+	// }
 
 	return nwGraphMsg
 }
@@ -370,7 +408,6 @@ func (ng *NetworkGraph) Run(ctx context.Context, wg *sync.WaitGroup) {
 		case client := <-ng.handler.bootstrapChan:
 			if !ng.catchup {
 				message := ng.makeNetworkGraphMessage()
-				log.Info("Send: ", message)
 				ng.handler.unicastMessage(message, client)
 			}
 		}
