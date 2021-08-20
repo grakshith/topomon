@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,31 +95,12 @@ func (ng *NetworkGraph) dequeueTelemetryEvents(ctx context.Context) {
 	}
 }
 
-// func (ng *NetworkGraph) calculateMapDelta2(queryHit Hit) ([]interface{}, []interface{}) {
-// 	eventHost := queryHit.Source.Host
-// 	var additions []interface{}
-// 	var deletions []interface{}
-
-// 	switch queryHit.Source.Message {
-// 	case ConnectPeerMessage:
-// 		connectPeerDetails, ok := queryHit.Source.ParsedData.(ConnectPeerDetails)
-// 		if !ok {
-// 			log.Error("QueryHit type conversion error: ", queryHit.Source.Message)
-// 			return additions, deletions
-// 		}
-// 		sourceNode := eventHost
-// 		destNode := connectPeerDetails.Details.HostName
-
-// 	case DisconnectPeerMessage:
-// 	case PeerConnectionsMessage:
-// 	}
-// }
-
 func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interface{}) {
 	// ng.ngMutex.Lock()
 	// defer ng.ngMutex.Unlock()
 
 	eventHost := queryHit.Source.Host
+	eventHostInstanceName := queryHit.Source.InstanceName
 	var additions []interface{}
 	var deletions []interface{}
 	switch queryHit.Source.Message {
@@ -128,48 +110,62 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			log.Error("QueryHit type conversion error: ", queryHit.Source.Message)
 			return additions, deletions
 		}
-		sourceNode := eventHost
-		destNode := connectPeerDetails.Details.HostName
-		networkMap := &ng.outgoingMap
-		invNetworkMap := &ng.incomingMap
+		var nodeBuilder strings.Builder
+		nodeBuilder.WriteString(eventHost)
+		nodeBuilder.WriteString(":")
+		nodeBuilder.WriteString(eventHostInstanceName)
+		sourceNode := nodeBuilder.String()
+		nodeBuilder.Reset()
+
+		nodeBuilder.WriteString(connectPeerDetails.Details.HostName)
+		nodeBuilder.WriteString(":")
+		nodeBuilder.WriteString(connectPeerDetails.Details.InstanceName)
+		destNode := nodeBuilder.String()
+
+		networkMap := ng.outgoingMap
+		invNetworkMap := ng.incomingMap
 
 		if connectPeerDetails.Details.Incoming {
-			networkMap = &ng.incomingMap
-			invNetworkMap = &ng.outgoingMap
+			networkMap = ng.incomingMap
+			invNetworkMap = ng.outgoingMap
 		}
 
-		_, exists := (*networkMap)[sourceNode]
+		_, exists := networkMap[sourceNode]
 		if !exists {
-			(*networkMap)[sourceNode] = make(map[string]bool)
+			networkMap[sourceNode] = make(map[string]bool)
 		}
 
-		_, exists = (*networkMap)[sourceNode][destNode]
+		_, exists = invNetworkMap[destNode]
 		if !exists {
-			(*networkMap)[sourceNode][destNode] = true
-			if !checkInverseMappingExists(invNetworkMap, destNode, sourceNode) {
-				nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
-				if nodeMsg != nil {
-					additions = append(additions, nodeMsg)
-					log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
-				}
-				nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, destNode, 1)
-				if nodeMsg != nil {
-					additions = append(additions, nodeMsg)
-					log.WithField("degree", ng.nodeMap[destNode]).Debug(nodeMsg)
-				}
+			invNetworkMap[destNode] = make(map[string]bool)
+		}
 
-				var addEdgeMsg AddEdge
-				if connectPeerDetails.Details.Incoming {
-					addEdgeMsg = MakeAddEdge(destNode, sourceNode)
-					updateNetworkMap(ng.networkMap, destNode, sourceNode, true)
-					logEdgeWithNodeDegree(ng.nodeMap[destNode], ng.nodeMap[sourceNode]).Debug(addEdgeMsg)
-				} else {
-					addEdgeMsg = MakeAddEdge(sourceNode, destNode)
-					updateNetworkMap(ng.networkMap, sourceNode, destNode, true)
-					logEdgeWithNodeDegree(ng.nodeMap[sourceNode], ng.nodeMap[destNode]).Debug(addEdgeMsg)
-				}
-				additions = append(additions, addEdgeMsg)
+		_, exists = networkMap[sourceNode][destNode]
+		if !exists {
+			networkMap[sourceNode][destNode] = true
+			invNetworkMap[destNode][sourceNode] = true
+			nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
+			if nodeMsg != nil {
+				additions = append(additions, nodeMsg)
+				log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
 			}
+			nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, destNode, 1)
+			if nodeMsg != nil {
+				additions = append(additions, nodeMsg)
+				log.WithField("degree", ng.nodeMap[destNode]).Debug(nodeMsg)
+			}
+
+			var addEdgeMsg AddEdge
+			if connectPeerDetails.Details.Incoming {
+				addEdgeMsg = MakeAddEdge(destNode, sourceNode)
+				updateNetworkMap(ng.networkMap, destNode, sourceNode, true)
+				logEdgeWithNodeDegree(ng.nodeMap[destNode], ng.nodeMap[sourceNode]).Debug(addEdgeMsg)
+			} else {
+				addEdgeMsg = MakeAddEdge(sourceNode, destNode)
+				updateNetworkMap(ng.networkMap, sourceNode, destNode, true)
+				logEdgeWithNodeDegree(ng.nodeMap[sourceNode], ng.nodeMap[destNode]).Debug(addEdgeMsg)
+			}
+			additions = append(additions, addEdgeMsg)
 		}
 	case DisconnectPeerMessage:
 		disconnectPeerDetails, ok := queryHit.Source.ParsedData.(DisconnectPeerDetails)
@@ -177,49 +173,58 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			log.Error("QueryHit type conversion error: ", queryHit.Source.Message)
 			return additions, deletions
 		}
-		sourceNode := eventHost
-		destNode := disconnectPeerDetails.Details.HostName
-		networkMap := &ng.outgoingMap
-		invNetworkMap := &ng.incomingMap
+		var nodeBuilder strings.Builder
+		nodeBuilder.WriteString(eventHost)
+		nodeBuilder.WriteString(":")
+		nodeBuilder.WriteString(eventHostInstanceName)
+		sourceNode := nodeBuilder.String()
+		nodeBuilder.Reset()
+
+		nodeBuilder.WriteString(disconnectPeerDetails.Details.HostName)
+		nodeBuilder.WriteString(":")
+		nodeBuilder.WriteString(disconnectPeerDetails.Details.InstanceName)
+		destNode := nodeBuilder.String()
+
+		networkMap := ng.outgoingMap
+		invNetworkMap := ng.incomingMap
 
 		if disconnectPeerDetails.Details.Incoming {
-			networkMap = &ng.incomingMap
-			invNetworkMap = &ng.outgoingMap
+			networkMap = ng.incomingMap
+			invNetworkMap = ng.outgoingMap
 		}
-		_, exists := (*networkMap)[sourceNode]
+		_, exists := networkMap[sourceNode]
 		// source not present, return
 		if !exists {
 			break
 		}
-		_, exists = (*networkMap)[sourceNode][destNode]
+		_, exists = networkMap[sourceNode][destNode]
 		if exists {
-			delete((*networkMap)[sourceNode], destNode)
-			if checkInverseMappingExists(invNetworkMap, destNode, sourceNode) {
-
-				nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
-				if nodeMsg != nil {
-					deletions = append(deletions, nodeMsg)
-					log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
-				}
-
-				nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, destNode, -1)
-				if nodeMsg != nil {
-					deletions = append(deletions, nodeMsg)
-					log.WithField("degree", ng.nodeMap[destNode]).Debug(nodeMsg)
-				}
-
-				var removeEdgeMsg RemoveEdge
-				if disconnectPeerDetails.Details.Incoming {
-					removeEdgeMsg = MakeRemoveEdge(destNode, sourceNode)
-					updateNetworkMap(ng.networkMap, destNode, sourceNode, false)
-					logEdgeWithNodeDegree(ng.nodeMap[destNode], ng.nodeMap[sourceNode]).Debug(removeEdgeMsg)
-				} else {
-					removeEdgeMsg = MakeRemoveEdge(sourceNode, destNode)
-					updateNetworkMap(ng.networkMap, sourceNode, destNode, false)
-					logEdgeWithNodeDegree(ng.nodeMap[sourceNode], ng.nodeMap[destNode]).Debug(removeEdgeMsg)
-				}
-				deletions = append(deletions, removeEdgeMsg)
+			delete(networkMap[sourceNode], destNode)
+			delete(invNetworkMap[destNode], sourceNode)
+			nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
+			if nodeMsg != nil {
+				deletions = append(deletions, nodeMsg)
+				log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
 			}
+
+			nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, destNode, -1)
+			if nodeMsg != nil {
+				deletions = append(deletions, nodeMsg)
+				log.WithField("degree", ng.nodeMap[destNode]).Debug(nodeMsg)
+			}
+
+			var removeEdgeMsg RemoveEdge
+			if disconnectPeerDetails.Details.Incoming {
+				removeEdgeMsg = MakeRemoveEdge(destNode, sourceNode)
+				updateNetworkMap(ng.networkMap, destNode, sourceNode, false)
+				logEdgeWithNodeDegree(ng.nodeMap[destNode], ng.nodeMap[sourceNode]).Debug(removeEdgeMsg)
+			} else {
+				removeEdgeMsg = MakeRemoveEdge(sourceNode, destNode)
+				updateNetworkMap(ng.networkMap, sourceNode, destNode, false)
+				logEdgeWithNodeDegree(ng.nodeMap[sourceNode], ng.nodeMap[destNode]).Debug(removeEdgeMsg)
+			}
+			deletions = append(deletions, removeEdgeMsg)
+
 		}
 	case PeerConnectionsMessage:
 		peerConnectionsDetails, ok := queryHit.Source.ParsedData.(PeerConnectionDetails)
@@ -227,42 +232,76 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			log.Error("QueryHit type conversion error: ", queryHit.Source.Message)
 			return additions, deletions
 		}
-		sourceNode := eventHost
+		var nodeBuilder strings.Builder
+		nodeBuilder.WriteString(eventHost)
+		nodeBuilder.WriteString(":")
+		nodeBuilder.WriteString(eventHostInstanceName)
+		sourceNode := nodeBuilder.String()
 
 		latestIncomingMap := make(map[string]bool)
 		for _, peer := range peerConnectionsDetails.Details.IncomingPeers {
-			latestIncomingMap[peer.HostName] = true
+			var peerNodeBuilder strings.Builder
+			peerNodeBuilder.WriteString(peer.HostName)
+			peerNodeBuilder.WriteString(":")
+			peerNodeBuilder.WriteString(peer.InstanceName)
+			latestIncomingMap[peerNodeBuilder.String()] = true
 		}
 
 		// calculate additions for incoming peers
 		for peerHostname := range latestIncomingMap {
 			if _, exists := ng.incomingMap[sourceNode][peerHostname]; !exists {
 				// check if mapping exists in inverse map
-				if !checkInverseMappingExists(&ng.outgoingMap, peerHostname, sourceNode) {
-					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
-					if nodeMsg != nil {
-						additions = append(additions, nodeMsg)
-						log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
-					}
-					nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, 1)
-					if nodeMsg != nil {
-						additions = append(additions, nodeMsg)
-						log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
-					}
+				createOrUpdateDirectionMap(ng.incomingMap, sourceNode, peerHostname, true)
+				createOrUpdateDirectionMap(ng.outgoingMap, peerHostname, sourceNode, true)
 
-					addEdgeMsg := MakeAddEdge(peerHostname, sourceNode)
-					additions = append(additions, addEdgeMsg)
-					logEdgeWithNodeDegree(ng.nodeMap[peerHostname], ng.nodeMap[sourceNode]).Debug(addEdgeMsg)
-					updateNetworkMap(ng.networkMap, peerHostname, sourceNode, true)
+				nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
+				if nodeMsg != nil {
+					additions = append(additions, nodeMsg)
+					log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
 				}
+				nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, 1)
+				if nodeMsg != nil {
+					additions = append(additions, nodeMsg)
+					log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
+				}
+
+				addEdgeMsg := MakeAddEdge(peerHostname, sourceNode)
+				additions = append(additions, addEdgeMsg)
+				logEdgeWithNodeDegree(ng.nodeMap[peerHostname], ng.nodeMap[sourceNode]).Debug(addEdgeMsg)
+				updateNetworkMap(ng.networkMap, peerHostname, sourceNode, true)
+
 			}
 		}
 
 		// calculate deletions for incoming peers
-		for peerHostname := range ng.incomingMap[sourceNode] {
-			if _, exists := latestIncomingMap[peerHostname]; !exists {
-				// check if mapping exists in inverse map
-				if checkInverseMappingExists(&ng.outgoingMap, peerHostname, sourceNode) {
+		// for peerHostname := range ng.incomingMap[sourceNode] {
+		// 	if _, exists := latestIncomingMap[peerHostname]; !exists {
+		// 		createOrUpdateDirectionMap(ng.incomingMap, sourceNode, peerHostname, false)
+		// 		createOrUpdateDirectionMap(ng.outgoingMap, peerHostname, sourceNode, false)
+
+		// 		nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
+		// 		if nodeMsg != nil {
+		// 			deletions = append(deletions, nodeMsg)
+		// 			log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
+		// 		}
+		// 		nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, -1)
+		// 		if nodeMsg != nil {
+		// 			deletions = append(deletions, nodeMsg)
+		// 			log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
+		// 		}
+		// 		removeEdgeMsg := MakeRemoveEdge(peerHostname, sourceNode)
+		// 		deletions = append(deletions, removeEdgeMsg)
+		// 		logEdgeWithNodeDegree(ng.nodeMap[peerHostname], ng.nodeMap[sourceNode]).Debug(removeEdgeMsg)
+		// 		updateNetworkMap(ng.networkMap, peerHostname, sourceNode, false)
+		// 	}
+		// }
+
+		for peerHostname := range ng.outgoingMap {
+			if _, exists := ng.outgoingMap[peerHostname][sourceNode]; exists {
+				if _, existsInLatestMap := latestIncomingMap[peerHostname]; !existsInLatestMap {
+					createOrUpdateDirectionMap(ng.incomingMap, sourceNode, peerHostname, false)
+					createOrUpdateDirectionMap(ng.outgoingMap, peerHostname, sourceNode, false)
+
 					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
 					if nodeMsg != nil {
 						deletions = append(deletions, nodeMsg)
@@ -281,40 +320,68 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			}
 		}
 
-		ng.incomingMap[sourceNode] = latestIncomingMap
-
 		latestOutgoingMap := make(map[string]bool)
 		for _, peer := range peerConnectionsDetails.Details.OutgoingPeers {
-			latestOutgoingMap[peer.HostName] = true
+			var peerNodeBuilder strings.Builder
+			peerNodeBuilder.WriteString(peer.HostName)
+			peerNodeBuilder.WriteString(":")
+			peerNodeBuilder.WriteString(peer.InstanceName)
+			latestOutgoingMap[peerNodeBuilder.String()] = true
 		}
 
 		// calculate additions for outgoing peers
 		for peerHostname := range latestOutgoingMap {
 			if _, exists := ng.outgoingMap[sourceNode][peerHostname]; !exists {
-				if !checkInverseMappingExists(&ng.incomingMap, peerHostname, sourceNode) {
-					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
-					if nodeMsg != nil {
-						additions = append(additions, nodeMsg)
-						log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
-					}
-					nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, 1)
-					if nodeMsg != nil {
-						additions = append(additions, nodeMsg)
-						log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
-					}
-
-					addEdgeMsg := MakeAddEdge(sourceNode, peerHostname)
-					additions = append(additions, addEdgeMsg)
-					logEdgeWithNodeDegree(ng.nodeMap[sourceNode], ng.nodeMap[peerHostname]).Debug(addEdgeMsg)
-					updateNetworkMap(ng.networkMap, sourceNode, peerHostname, true)
+				createOrUpdateDirectionMap(ng.outgoingMap, sourceNode, peerHostname, true)
+				createOrUpdateDirectionMap(ng.incomingMap, peerHostname, sourceNode, true)
+				nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, 1)
+				if nodeMsg != nil {
+					additions = append(additions, nodeMsg)
+					log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
 				}
+				nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, 1)
+				if nodeMsg != nil {
+					additions = append(additions, nodeMsg)
+					log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
+				}
+
+				addEdgeMsg := MakeAddEdge(sourceNode, peerHostname)
+				additions = append(additions, addEdgeMsg)
+				logEdgeWithNodeDegree(ng.nodeMap[sourceNode], ng.nodeMap[peerHostname]).Debug(addEdgeMsg)
+				updateNetworkMap(ng.networkMap, sourceNode, peerHostname, true)
 			}
 		}
 
 		// calculate deletions for outgoing peers
-		for peerHostname := range ng.outgoingMap[sourceNode] {
-			if _, exists := latestOutgoingMap[peerHostname]; !exists {
-				if checkInverseMappingExists(&ng.incomingMap, peerHostname, sourceNode) {
+		// for peerHostname := range ng.outgoingMap[sourceNode] {
+		// 	if _, exists := latestOutgoingMap[peerHostname]; !exists {
+		// 		createOrUpdateDirectionMap(ng.outgoingMap, sourceNode, peerHostname, false)
+		// 		createOrUpdateDirectionMap(ng.incomingMap, peerHostname, sourceNode, false)
+
+		// 		nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
+		// 		if nodeMsg != nil {
+		// 			deletions = append(deletions, nodeMsg)
+		// 			log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
+		// 		}
+		// 		nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, -1)
+		// 		if nodeMsg != nil {
+		// 			deletions = append(deletions, nodeMsg)
+		// 			log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
+		// 		}
+
+		// 		removeEdgeMsg := MakeRemoveEdge(sourceNode, peerHostname)
+		// 		deletions = append(deletions, removeEdgeMsg)
+		// 		logEdgeWithNodeDegree(ng.nodeMap[sourceNode], ng.nodeMap[peerHostname]).Debug(removeEdgeMsg)
+		// 		updateNetworkMap(ng.networkMap, sourceNode, peerHostname, false)
+		// 	}
+		// }
+
+		for peerHostname := range ng.incomingMap {
+			if _, exists := ng.incomingMap[peerHostname][sourceNode]; exists {
+				if _, existsInLatestMap := latestOutgoingMap[peerHostname]; !existsInLatestMap {
+					createOrUpdateDirectionMap(ng.outgoingMap, sourceNode, peerHostname, false)
+					createOrUpdateDirectionMap(ng.incomingMap, peerHostname, sourceNode, false)
+
 					nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
 					if nodeMsg != nil {
 						deletions = append(deletions, nodeMsg)
@@ -325,7 +392,6 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 						deletions = append(deletions, nodeMsg)
 						log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
 					}
-
 					removeEdgeMsg := MakeRemoveEdge(sourceNode, peerHostname)
 					deletions = append(deletions, removeEdgeMsg)
 					logEdgeWithNodeDegree(ng.nodeMap[sourceNode], ng.nodeMap[peerHostname]).Debug(removeEdgeMsg)
@@ -334,10 +400,20 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			}
 		}
 
-		ng.outgoingMap[sourceNode] = latestOutgoingMap
-
 	}
 	return additions, deletions
+}
+
+func createOrUpdateDirectionMap(directionMap map[string]map[string]bool, srcNode string, destNode string, value bool) {
+	// check if srcNode exists
+	if _, exists := directionMap[srcNode]; !exists {
+		directionMap[srcNode] = make(map[string]bool)
+	}
+	if !value {
+		delete(directionMap[srcNode], destNode)
+		return
+	}
+	directionMap[srcNode][destNode] = value
 }
 
 func checkNodeMapForNodeChanges(nodeMap *map[string]int, node string, count int) interface{} {

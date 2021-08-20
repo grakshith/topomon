@@ -62,10 +62,11 @@ type Hit struct {
 }
 
 type HitSource struct {
-	Host      string
-	Timestamp string `json:"@timestamp"`
-	Message   string
-	RawData   json.RawMessage `json:"Data"`
+	Host         string
+	Timestamp    string `json:"@timestamp"`
+	InstanceName string
+	Message      string
+	RawData      json.RawMessage `json:"Data"`
 	// parsed data stores the concrete type corresponding to the message type
 	ParsedData interface{}
 }
