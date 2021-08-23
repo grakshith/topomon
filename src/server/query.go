@@ -62,11 +62,10 @@ type Hit struct {
 }
 
 type HitSource struct {
-	Host         string
-	Timestamp    string `json:"@timestamp"`
-	InstanceName string
-	Message      string
-	RawData      json.RawMessage `json:"Data"`
+	Host      string
+	Timestamp string `json:"@timestamp"`
+	Message   string
+	RawData   json.RawMessage `json:"Data"`
 	// parsed data stores the concrete type corresponding to the message type
 	ParsedData interface{}
 }
@@ -74,15 +73,18 @@ type HitSource struct {
 // Types for each of the message types
 // These are wrappers to telemetryspec types
 type ConnectPeerDetails struct {
-	Details telemetryspec.PeerEventDetails `json:"details"`
+	InstanceName string
+	Details      telemetryspec.PeerEventDetails `json:"details"`
 }
 
 type PeerConnectionDetails struct {
-	Details telemetryspec.PeersConnectionDetails `json:"details"`
+	InstanceName string
+	Details      telemetryspec.PeersConnectionDetails `json:"details"`
 }
 
 type DisconnectPeerDetails struct {
-	Details telemetryspec.DisconnectPeerEventDetails `json:"details"`
+	InstanceName string
+	Details      telemetryspec.DisconnectPeerEventDetails `json:"details"`
 }
 
 // ESClient is the wrapper around the elasticsearch client

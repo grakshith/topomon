@@ -100,7 +100,7 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 	// defer ng.ngMutex.Unlock()
 
 	eventHost := queryHit.Source.Host
-	eventHostInstanceName := queryHit.Source.InstanceName
+
 	var additions []interface{}
 	var deletions []interface{}
 	switch queryHit.Source.Message {
@@ -111,6 +111,7 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			return additions, deletions
 		}
 
+		eventHostInstanceName := connectPeerDetails.InstanceName
 		sourceNode := formatNodeName(eventHost, eventHostInstanceName)
 		destNode := formatNodeName(connectPeerDetails.Details.HostName, connectPeerDetails.Details.InstanceName)
 
@@ -165,6 +166,7 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			log.Error("QueryHit type conversion error: ", queryHit.Source.Message)
 			return additions, deletions
 		}
+		eventHostInstanceName := disconnectPeerDetails.InstanceName
 		sourceNode := formatNodeName(eventHost, eventHostInstanceName)
 		destNode := formatNodeName(disconnectPeerDetails.Details.HostName, disconnectPeerDetails.Details.InstanceName)
 
@@ -215,6 +217,7 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			log.Error("QueryHit type conversion error: ", queryHit.Source.Message)
 			return additions, deletions
 		}
+		eventHostInstanceName := peerConnectionsDetails.InstanceName
 		sourceNode := formatNodeName(eventHost, eventHostInstanceName)
 
 		latestIncomingMap := make(map[string]bool)
@@ -382,15 +385,16 @@ func formatNodeName(telemetryGUID string, telemetryInstance string) string {
 	split := strings.Split(telemetryGUID, ":")
 	for _, str := range split {
 		nodeNameBuilder.WriteString(str)
+		nodeNameBuilder.WriteString(":")
 	}
-	nodeNameBuilder.WriteString(":")
+	// nodeNameBuilder.WriteString(":")
 
 	// check if split contains any relay names
-	if len(split) > 1 && strings.HasPrefix(split[1], "R") {
-		if CurrentConfig.SkipTelemetryInstanceForRelays {
-			telemetryInstance = ""
-		}
-	}
+	// if len(split) > 1 && strings.HasPrefix(split[1], "R") {
+	// 	if CurrentConfig.SkipTelemetryInstanceForRelays {
+	// 		telemetryInstance = ""
+	// 	}
+	// }
 
 	nodeNameBuilder.WriteString(telemetryInstance)
 	return nodeNameBuilder.String()
