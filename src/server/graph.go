@@ -110,17 +110,9 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			log.Error("QueryHit type conversion error: ", queryHit.Source.Message)
 			return additions, deletions
 		}
-		var nodeBuilder strings.Builder
-		nodeBuilder.WriteString(eventHost)
-		nodeBuilder.WriteString(":")
-		nodeBuilder.WriteString(eventHostInstanceName)
-		sourceNode := nodeBuilder.String()
-		nodeBuilder.Reset()
 
-		nodeBuilder.WriteString(connectPeerDetails.Details.HostName)
-		nodeBuilder.WriteString(":")
-		nodeBuilder.WriteString(connectPeerDetails.Details.InstanceName)
-		destNode := nodeBuilder.String()
+		sourceNode := formatNodeName(eventHost, eventHostInstanceName)
+		destNode := formatNodeName(connectPeerDetails.Details.HostName, connectPeerDetails.Details.InstanceName)
 
 		networkMap := ng.outgoingMap
 		invNetworkMap := ng.incomingMap
@@ -173,17 +165,8 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			log.Error("QueryHit type conversion error: ", queryHit.Source.Message)
 			return additions, deletions
 		}
-		var nodeBuilder strings.Builder
-		nodeBuilder.WriteString(eventHost)
-		nodeBuilder.WriteString(":")
-		nodeBuilder.WriteString(eventHostInstanceName)
-		sourceNode := nodeBuilder.String()
-		nodeBuilder.Reset()
-
-		nodeBuilder.WriteString(disconnectPeerDetails.Details.HostName)
-		nodeBuilder.WriteString(":")
-		nodeBuilder.WriteString(disconnectPeerDetails.Details.InstanceName)
-		destNode := nodeBuilder.String()
+		sourceNode := formatNodeName(eventHost, eventHostInstanceName)
+		destNode := formatNodeName(disconnectPeerDetails.Details.HostName, disconnectPeerDetails.Details.InstanceName)
 
 		networkMap := ng.outgoingMap
 		invNetworkMap := ng.incomingMap
@@ -232,19 +215,12 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			log.Error("QueryHit type conversion error: ", queryHit.Source.Message)
 			return additions, deletions
 		}
-		var nodeBuilder strings.Builder
-		nodeBuilder.WriteString(eventHost)
-		nodeBuilder.WriteString(":")
-		nodeBuilder.WriteString(eventHostInstanceName)
-		sourceNode := nodeBuilder.String()
+		sourceNode := formatNodeName(eventHost, eventHostInstanceName)
 
 		latestIncomingMap := make(map[string]bool)
 		for _, peer := range peerConnectionsDetails.Details.IncomingPeers {
-			var peerNodeBuilder strings.Builder
-			peerNodeBuilder.WriteString(peer.HostName)
-			peerNodeBuilder.WriteString(":")
-			peerNodeBuilder.WriteString(peer.InstanceName)
-			latestIncomingMap[peerNodeBuilder.String()] = true
+			peerNode := formatNodeName(peer.HostName, peer.InstanceName)
+			latestIncomingMap[peerNode] = true
 		}
 
 		// calculate additions for incoming peers
@@ -322,11 +298,8 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 
 		latestOutgoingMap := make(map[string]bool)
 		for _, peer := range peerConnectionsDetails.Details.OutgoingPeers {
-			var peerNodeBuilder strings.Builder
-			peerNodeBuilder.WriteString(peer.HostName)
-			peerNodeBuilder.WriteString(":")
-			peerNodeBuilder.WriteString(peer.InstanceName)
-			latestOutgoingMap[peerNodeBuilder.String()] = true
+			peerNode := formatNodeName(peer.HostName, peer.InstanceName)
+			latestOutgoingMap[peerNode] = true
 		}
 
 		// calculate additions for outgoing peers
@@ -402,6 +375,25 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 
 	}
 	return additions, deletions
+}
+
+func formatNodeName(telemetryGUID string, telemetryInstance string) string {
+	var nodeNameBuilder strings.Builder
+	split := strings.Split(telemetryGUID, ":")
+	for _, str := range split {
+		nodeNameBuilder.WriteString(str)
+	}
+	nodeNameBuilder.WriteString(":")
+
+	// check if split contains any relay names
+	if len(split) > 1 && strings.HasPrefix(split[1], "R") {
+		if CurrentConfig.SkipTelemetryInstanceForRelays {
+			telemetryInstance = ""
+		}
+	}
+
+	nodeNameBuilder.WriteString(telemetryInstance)
+	return nodeNameBuilder.String()
 }
 
 func createOrUpdateDirectionMap(directionMap map[string]map[string]bool, srcNode string, destNode string, value bool) {

@@ -100,7 +100,6 @@ func main() {
 	if err != nil {
 		log.Error("Cannot open log file: ", err)
 	}
-	defer f.Close()
 	log.SetOutput(io.MultiWriter(f, os.Stdout))
 
 	ctx, stopServer := context.WithCancel(context.Background())
