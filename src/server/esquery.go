@@ -75,16 +75,19 @@ type HitSource struct {
 type ConnectPeerDetails struct {
 	InstanceName string
 	Details      telemetryspec.PeerEventDetails `json:"details"`
+	Session      string
 }
 
 type PeerConnectionDetails struct {
 	InstanceName string
 	Details      telemetryspec.PeersConnectionDetails `json:"details"`
+	Session      string
 }
 
 type DisconnectPeerDetails struct {
 	InstanceName string
 	Details      telemetryspec.DisconnectPeerEventDetails `json:"details"`
+	Session      string
 }
 
 // ESClient is the wrapper around the elasticsearch client
