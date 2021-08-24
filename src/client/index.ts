@@ -49,7 +49,7 @@ globalize({graph, renderer});
 
 // node and edge dicts
 let nodeArray:string[] = [];
-let edgeMap = new Map();
+let sessionMap = new Map();
 
 // layout settings
 const NOVERLAP_SETTINGS = {
@@ -92,24 +92,29 @@ ws.addEventListener('message', function(event){
       //     nodeArray.push(node);
       //   break;
       case "AddEdge":
-          if(graph.hasNode(wsEvent.source)==false){
-            graph.mergeNode(wsEvent.source, {
+          if(graph.hasNode(wsEvent.source.name)==false){
+            graph.mergeNode(wsEvent.source.name, {
               x: Math.random(),
               y: Math.random(),
               size: 4,
-              label: wsEvent.source,
+              label: wsEvent.source.name,
               });
+              if(wsEvent.source.telemetrySession!=""){
+                sessionMap.set(wsEvent.source.telemetrySession, wsEvent.source.name);
+              }
           }
-          if(graph.hasNode(wsEvent.target)==false){
-            graph.mergeNode(wsEvent.target, {
+          if(graph.hasNode(wsEvent.target.name)==false){
+            graph.mergeNode(wsEvent.target.name, {
               x: Math.random(),
               y: Math.random(),
               size: 4,
-              label: wsEvent.target,
+              label: wsEvent.target.name,
               });
+              if(wsEvent.target.telemetrySession!=""){
+                sessionMap.set(wsEvent.target.telemetrySession, wsEvent.target.name);
+              }
           }
-          var edge = graph.mergeEdge(wsEvent.source, wsEvent.target);
-          edgeMap.set(edge, {"source": wsEvent.source, "target": wsEvent.target});
+          var edge = graph.mergeEdge(wsEvent.source.name, wsEvent.target.name);
         break;
       // case "RemoveNode":
       //   if(graph.hasNode(wsEvent.node)){
@@ -118,8 +123,8 @@ ws.addEventListener('message', function(event){
       //   }
       //   break;
       case "RemoveEdge":
-        if(graph.hasEdge(wsEvent.source, wsEvent.target)){
-          var edge = graph.edge(wsEvent.source, wsEvent.target);
+        if(graph.hasEdge(wsEvent.source.name, wsEvent.target.name)){
+          var edge = graph.edge(wsEvent.source.name, wsEvent.target.name);
           graph.dropEdge(edge);
         }
         break;
@@ -136,23 +141,29 @@ ws.addEventListener('message', function(event){
         //   }
         // });
         wsEvent.edges.forEach((edge:any) => {
-          if(graph.hasNode(edge["source"])==false){
-            graph.mergeNode(edge["source"], {
+          if(graph.hasNode(edge.source.name)==false){
+            graph.mergeNode(edge.source.name, {
               x: Math.random(),
               y: Math.random(),
               size: 4,
-              label: edge["source"],
+              label: edge.source.name,
             });
+            if(edge.source.telemetrySession!=""){
+              sessionMap.set(edge.source.telemetrySession, edge.source.name);
+            }
           }
-          if(graph.hasNode(edge["target"])==false){
-            graph.mergeNode(edge["target"], {
+          if(graph.hasNode(edge.target.name)==false){
+            graph.mergeNode(edge.target.name, {
               x: Math.random(),
               y: Math.random(),
               size: 4,
-              label: edge["target"],
+              label: edge.target.name,
             });
+            if(edge.target.telemetrySession!=""){
+              sessionMap.set(edge.target.telemetrySession, edge.target.name);
+            }
           }
-          var e = graph.mergeEdge(edge["source"], edge["target"]);
+          var e = graph.mergeEdge(edge.source.name, edge.target.name);
         });
         break;
     }

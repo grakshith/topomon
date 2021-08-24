@@ -14,65 +14,88 @@ import (
 
 // ws message definitions
 
+type Node struct {
+	Name             string `json:"name"`
+	TelemetrySession string `json:"session"`
+}
+
 // AddNode stores the node to be added
 type AddNode struct {
 	MessageType string `json:"message"`
-	Node        string `json:"node"`
+	Node        Node   `json:"node"`
 }
 
 // AddEdge stores the source and target nodes between which an edge has to be added
 type AddEdge struct {
 	MessageType string `json:"message"`
-	SourceNode  string `json:"source"`
-	TargetNode  string `json:"target"`
+	SourceNode  Node   `json:"source"`
+	TargetNode  Node   `json:"target"`
 }
 
 // RemoveNode stores the node to be removed
 type RemoveNode struct {
 	MessageType string `json:"message"`
-	Node        string `json:"node"`
+	Node        Node   `json:"node"`
 }
 
 // RemoveEdge stores the source and target nodes between which an edges has to be removed
 type RemoveEdge struct {
 	MessageType string `json:"message"`
-	SourceNode  string `json:"source"`
-	TargetNode  string `json:"target"`
+	SourceNode  Node   `json:"source"`
+	TargetNode  Node   `json:"target"`
 }
 
 // functions to construct messages
 
 // MakeAddNode returns a message of type AddNode
-func MakeAddNode(node string) AddNode {
+func MakeAddNode(node string, session string) AddNode {
 	return AddNode{
 		MessageType: "AddNode",
-		Node:        node,
+		Node: Node{
+			Name:             node,
+			TelemetrySession: session,
+		},
 	}
 }
 
 // MakeAddEdge returns a message of type AddEdge
-func MakeAddEdge(sourceNode string, targetNode string) AddEdge {
+func MakeAddEdge(sourceNode string, sourceSession string, targetNode string, targetSession string) AddEdge {
 	return AddEdge{
 		MessageType: "AddEdge",
-		SourceNode:  sourceNode,
-		TargetNode:  targetNode,
+		SourceNode: Node{
+			Name:             sourceNode,
+			TelemetrySession: sourceSession,
+		},
+		TargetNode: Node{
+			Name:             targetNode,
+			TelemetrySession: targetSession,
+		},
 	}
 }
 
 // MakeRemoveNode returns a message of type RemoveEdge
-func MakeRemoveNode(node string) RemoveNode {
+func MakeRemoveNode(node string, session string) RemoveNode {
 	return RemoveNode{
 		MessageType: "RemoveNode",
-		Node:        node,
+		Node: Node{
+			Name:             node,
+			TelemetrySession: session,
+		},
 	}
 }
 
 // MakeRemoveEdge returns a message of type RemoveEdge
-func MakeRemoveEdge(sourceNode string, targetNode string) RemoveEdge {
+func MakeRemoveEdge(sourceNode string, sourceSession string, targetNode string, targetSession string) RemoveEdge {
 	return RemoveEdge{
 		MessageType: "RemoveEdge",
-		SourceNode:  sourceNode,
-		TargetNode:  targetNode,
+		SourceNode: Node{
+			Name:             sourceNode,
+			TelemetrySession: sourceSession,
+		},
+		TargetNode: Node{
+			Name:             targetNode,
+			TelemetrySession: targetSession,
+		},
 	}
 }
 
