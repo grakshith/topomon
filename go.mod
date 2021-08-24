@@ -10,6 +10,8 @@ require (
 	github.com/enriquebris/goconcurrentqueue v0.6.0
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/prometheus/client_golang v1.11.0
+	github.com/prometheus/common v0.26.0 // indirect
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
 )

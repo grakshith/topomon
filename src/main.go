@@ -10,12 +10,12 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/grakshith/topomon/src/server"
 	log "github.com/sirupsen/logrus"
 )
 
+/*
 func repl(handler *server.ConnectionHandler) {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
@@ -78,6 +78,7 @@ func repl(handler *server.ConnectionHandler) {
 		}
 	}
 }
+*/
 
 func formatFilePath(filePath string) string {
 	slash := strings.LastIndex(filePath, "/")
@@ -110,6 +111,15 @@ func main() {
 	if err != nil {
 		return
 	}
+
+	promClient, err := server.MakePromClient()
+	if err != nil {
+		return
+	}
+
+	result := promClient.QueryMetrics("algod_tx_pool_count")
+	log.Debug(result.String())
+	// return
 
 	ngRefresher := server.MakeNetworkGraph(handler, esClient)
 
