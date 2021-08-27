@@ -112,15 +112,6 @@ func main() {
 		return
 	}
 
-	promClient, err := server.MakePromClient()
-	if err != nil {
-		return
-	}
-
-	result := promClient.QueryMetrics("algod_tx_pool_count")
-	log.Debug(result.String())
-	// return
-
 	ngRefresher := server.MakeNetworkGraph(handler, esClient)
 
 	router := server.ConfigureURLS(handler)
@@ -140,6 +131,9 @@ func main() {
 	go handler.Run(ctx, servicesWG)
 	go esClient.Run(ctx, servicesWG)
 	go ngRefresher.Run(ctx, servicesWG)
+	promClient := server.MakePromClient(handler)
+
+	promClient.StartMetricsService(ctx)
 
 	// register SIGINT signal
 	signalChan := make(chan os.Signal, 1)
