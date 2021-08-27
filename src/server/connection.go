@@ -9,6 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/algorand/go-deadlock"
 	"github.com/algorand/websocket"
 )
 
@@ -105,7 +106,8 @@ type ConnectionHandler struct {
 	ctx context.Context
 
 	// map of the active clients
-	clients map[*Client]bool
+	clients     map[*Client]bool
+	clientMutex deadlock.RWMutex
 
 	// client join channel
 	join chan *Client
@@ -185,7 +187,6 @@ func (handler *ConnectionHandler) Run(ctx context.Context, wg *sync.WaitGroup) {
 			// client.conn.Close()
 			delete(handler.clients, client)
 		case message := <-handler.Send:
-			log.Info("Broadcasting message: ", message)
 			handler.broadcastMessage(message)
 		}
 	}

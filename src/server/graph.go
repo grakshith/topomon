@@ -439,7 +439,7 @@ func checkNodeMapForNodeChanges(nodeMap map[string]*nodeStats, node string, coun
 		nodeMap[node].telemetrySession = session
 	}
 	if degree := nodeMap[node].degree; degree == 0 {
-		delete(nodeMap, node)
+		// delete(nodeMap, node)
 		removeNodeMsg := MakeRemoveNode(node, session)
 		return removeNodeMsg
 	}
@@ -540,14 +540,14 @@ func (ng *NetworkGraph) Run(ctx context.Context, wg *sync.WaitGroup) {
 			if ng.catchup {
 				ng.catchup = false
 				message := ng.makeNetworkGraphMessage()
-				ng.handler.broadcastMessage(message)
+				ng.handler.Send <- message
 				continue
 			}
 			for _, message := range additions {
-				ng.handler.broadcastMessage(message)
+				ng.handler.Send <- message
 			}
 			for _, message := range deletions {
-				ng.handler.broadcastMessage(message)
+				ng.handler.Send <- message
 			}
 		case client := <-ng.handler.bootstrapChan:
 			if !ng.catchup {

@@ -5,15 +5,16 @@ import (
 )
 
 type Config struct {
-	Host                         string `json:"host"`
-	Port                         string `json:"port"`
-	TelemetryEndpoint            string `json:"telemetryEndpoint"`
-	MetricsEndpoint              string `json:"metricsEndpoint"`
-	Channel                      string `json:"channel"`
-	Network                      string `json:"network"`
-	ESQuerySize                  int    `json:"esQuerySize"`
-	ESQueryRefreshPeriod         int    `json:"eqQueryRefreshPeriod"`
-	MessageQueueThresholdLatency int    `json:"messageQueueThresholdLatency"`
+	Host                         string  `json:"host"`
+	Port                         string  `json:"port"`
+	TelemetryEndpoint            string  `json:"telemetryEndpoint"`
+	MetricsEndpoint              string  `json:"metricsEndpoint"`
+	Channel                      string  `json:"channel"`
+	Network                      string  `json:"network"`
+	ESQuerySize                  int     `json:"esQuerySize"`
+	ESQueryRefreshPeriod         int     `json:"eqQueryRefreshPeriod"`
+	MessageQueueThresholdLatency int     `json:"messageQueueThresholdLatency"`
+	MetricsRefreshPeriod         float32 `json:"metricsRefreshPeriod"`
 }
 
 var DefaultLocalConfig = Config{
@@ -26,6 +27,7 @@ var DefaultLocalConfig = Config{
 	ESQuerySize:                  1000,
 	ESQueryRefreshPeriod:         2,
 	MessageQueueThresholdLatency: 2,
+	MetricsRefreshPeriod:         500,
 }
 
 var CurrentConfig = DefaultLocalConfig
