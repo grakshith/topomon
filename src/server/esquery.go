@@ -148,6 +148,7 @@ func (esClient *ESClient) QueryTelemetryEvents(queryString, timestamp string, si
 	res, err := es.Search(es.Search.WithIndex(esClient.index), es.Search.WithBody(builtQuery))
 	if err != nil {
 		log.Error("Error while querying elasticsearch: ", err)
+		return nil, err
 	}
 	defer res.Body.Close()
 	if res.IsError() {

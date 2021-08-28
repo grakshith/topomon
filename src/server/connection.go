@@ -175,7 +175,6 @@ func (handler *ConnectionHandler) Run(ctx context.Context, wg *sync.WaitGroup) {
 	for {
 		select {
 		case <-ctx.Done():
-			handler.shutDown()
 			log.Info("Terminating connection handler")
 			return
 		case client := <-handler.join:
@@ -190,15 +189,6 @@ func (handler *ConnectionHandler) Run(ctx context.Context, wg *sync.WaitGroup) {
 			handler.broadcastMessage(message)
 		}
 	}
-}
-
-func (handler *ConnectionHandler) shutDown() {
-	// for client := range handler.clients {
-	// 	client.conn.Close()
-	// }
-	close(handler.join)
-	close(handler.leave)
-	close(handler.Send)
 }
 
 func (client *Client) readComms(ctx context.Context) {
