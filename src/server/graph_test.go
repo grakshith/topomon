@@ -23,7 +23,7 @@ func TestCalculateMapDelta(t *testing.T) {
 		},
 	}
 
-	queryResult1 := []interface{}{AddNode{MessageType: "AddNode", Node: "A"}, AddNode{MessageType: "AddNode", Node: "B"}, AddEdge{MessageType: "AddEdge", SourceNode: "A", TargetNode: "B"}}
+	queryResult1 := []interface{}{MakeAddNode("A:", ""), MakeAddNode("B:", ""), MakeAddEdge("A:", "", "B:", "")}
 
 	queryHit2 := Hit{
 		Source: HitSource{
@@ -41,7 +41,7 @@ func TestCalculateMapDelta(t *testing.T) {
 		outgoingMap: make(map[string]map[string]bool),
 		incomingMap: make(map[string]map[string]bool),
 		networkMap:  make(map[string]map[string]bool),
-		nodeMap:     make(map[string]int),
+		nodeMap:     make(map[string]*nodeStats),
 	}
 
 	additions, deletions := ng.calculateMapDelta(queryHit1)
@@ -95,7 +95,7 @@ func TestCalculateMapDelta(t *testing.T) {
 		},
 	}
 
-	query5Additions := []interface{}{AddNode{MessageType: "AddNode", Node: "E"}, AddNode{MessageType: "AddNode", Node: "C"}, AddNode{MessageType: "AddNode", Node: "D"}, AddEdge{MessageType: "AddEdge", SourceNode: "E", TargetNode: "A"}, AddEdge{MessageType: "AddEdge", SourceNode: "A", TargetNode: "C"}, AddEdge{MessageType: "AddEdge", SourceNode: "A", TargetNode: "D"}}
+	query5Additions := []interface{}{MakeAddNode("E:", ""), MakeAddNode("C:", ""), MakeAddNode("D:", ""), MakeAddEdge("E:", "", "A:", ""), MakeAddEdge("A:", "", "C:", ""), MakeAddEdge("A:", "", "D:", "")}
 	// query5Deletions := []interface{}{RemoveNode{MessageType: "RemoveNode", Node: "B"}, RemoveEdge{MessageType: "RemoveEdge", SourceNode: "A", TargetNode: "B"}}
 
 	additions, deletions = ng.calculateMapDelta(queryHit5)
@@ -204,20 +204,20 @@ func TestCalculateMapDelta(t *testing.T) {
 	additions, deletions = ng.calculateMapDelta(queryHit8)
 	fmt.Println("Query 8")
 
-	query8Additions := []interface{}{MakeAddEdge("B", "C")}
+	query8Additions := []interface{}{MakeAddEdge("B:", "", "C:", "")}
 	require.ElementsMatch(t, query8Additions, additions)
 	require.Empty(t, deletions)
 
 	additions, deletions = ng.calculateMapDelta(queryHit9)
 	fmt.Println("Query 9")
 
-	query9Addtions := []interface{}{MakeAddNode("F"), MakeAddEdge("B", "F")}
+	query9Addtions := []interface{}{MakeAddNode("F:", ""), MakeAddEdge("B:", "", "F:", "")}
 	require.ElementsMatch(t, query9Addtions, additions)
 	require.Empty(t, deletions)
 
 	additions, deletions = ng.calculateMapDelta(queryHit10)
 	fmt.Println("Query 10")
-	query10Additions := []interface{}{MakeAddNode("G"), MakeAddEdge("B", "G")}
+	query10Additions := []interface{}{MakeAddNode("G:", ""), MakeAddEdge("B:", "", "G:", "")}
 	require.ElementsMatch(t, query10Additions, additions)
 	require.Empty(t, deletions)
 
@@ -288,7 +288,7 @@ func TestCalculateMapDelta(t *testing.T) {
 	}
 
 	additions, deletions = ng.calculateMapDelta(queryHit3)
-	query3deletions := []interface{}{MakeRemoveEdge("A", "B")}
+	query3deletions := []interface{}{MakeRemoveEdge("A:", "", "B:", "")}
 	require.ElementsMatch(t, query3deletions, deletions)
 	require.Empty(t, additions)
 
@@ -373,7 +373,7 @@ func TestCalculateMapDelta(t *testing.T) {
 
 	fmt.Println("Query 15")
 	additions, deletions = ng.calculateMapDelta(queryHit15)
-	query15deletions := []interface{}{MakeRemoveEdge("A", "C")}
+	query15deletions := []interface{}{MakeRemoveEdge("A:", "", "C:", "")}
 	require.ElementsMatch(t, query15deletions, deletions)
 	require.Empty(t, additions)
 
@@ -414,9 +414,13 @@ func TestCalculateMapDelta(t *testing.T) {
 
 	fmt.Println("Query16")
 	additions, deletions = ng.calculateMapDelta(queryHit16)
-	query16Deletions := []interface{}{MakeRemoveEdge("B", "C"), MakeRemoveNode("C")}
+	query16Deletions := []interface{}{MakeRemoveEdge("B:", "", "C:", ""), MakeRemoveNode("C:", "")}
 	require.Empty(t, additions)
 	require.ElementsMatch(t, query16Deletions, deletions)
+
+	fmt.Println(ng.outgoingMap)
+	fmt.Println(ng.incomingMap)
+	fmt.Println(ng.nodeMap)
 
 	queryHit17 := Hit{
 		Source: HitSource{
@@ -437,7 +441,8 @@ func TestCalculateMapDelta(t *testing.T) {
 
 	fmt.Println("Query 17")
 	additions, deletions = ng.calculateMapDelta(queryHit17)
-	require.Empty(t, additions)
+	query17Additions := []interface{}{MakeAddEdge("B:", "", "C:", ""), MakeAddNode("C:", "")}
+	require.ElementsMatch(t, additions, query17Additions)
 	require.Empty(t, deletions)
 
 	fmt.Println(ng.outgoingMap)

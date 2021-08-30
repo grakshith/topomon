@@ -426,7 +426,7 @@ func getNodeTelemetrySession(nodeMap map[string]*nodeStats, node string) string 
 }
 
 func checkNodeMapForNodeChanges(nodeMap map[string]*nodeStats, node string, count int, session string) interface{} {
-	if _, exists := nodeMap[node]; !exists {
+	if ns, exists := nodeMap[node]; !exists || ns.degree==0 {
 		nodeMap[node] = &nodeStats{
 			degree:           1,
 			telemetrySession: session,
