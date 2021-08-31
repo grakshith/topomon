@@ -392,18 +392,10 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 func formatNodeName(telemetryGUID string, telemetryInstance string) string {
 	var nodeNameBuilder strings.Builder
 	split := strings.Split(telemetryGUID, ":")
-	for _, str := range split {
-		nodeNameBuilder.WriteString(str)
+	if len(split) > 1 {
+		nodeNameBuilder.WriteString(split[1])
 		nodeNameBuilder.WriteString(":")
 	}
-	// nodeNameBuilder.WriteString(":")
-
-	// check if split contains any relay names
-	// if len(split) > 1 && strings.HasPrefix(split[1], "R") {
-	// 	if CurrentConfig.SkipTelemetryInstanceForRelays {
-	// 		telemetryInstance = ""
-	// 	}
-	// }
 
 	nodeNameBuilder.WriteString(telemetryInstance)
 	return nodeNameBuilder.String()
@@ -426,7 +418,7 @@ func getNodeTelemetrySession(nodeMap map[string]*nodeStats, node string) string 
 }
 
 func checkNodeMapForNodeChanges(nodeMap map[string]*nodeStats, node string, count int, session string) interface{} {
-	if ns, exists := nodeMap[node]; !exists || ns.degree==0 {
+	if ns, exists := nodeMap[node]; !exists || ns.degree == 0 {
 		nodeMap[node] = &nodeStats{
 			degree:           1,
 			telemetrySession: session,

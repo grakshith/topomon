@@ -111,8 +111,8 @@ function displayMetricsDiv(nodeName: string){
 
 function nodeSize(nodeName: string): number {
   var splits = nodeName.split(":");
-  if(splits.length==3){
-    if(splits[1].startsWith("R")){
+  if(splits.length==2){
+    if(splits[0].startsWith("R")){
       return 7;
     }
   }
@@ -233,8 +233,13 @@ ws.addEventListener('message', function(event){
           if(sessionKey!=undefined){
             var metricValue = metricsMap.get(sessionKey);
             if(metricValue!=undefined){
-              div.text(metricValue);
+              var prevMetricValue = div.text();
+              if(prevMetricValue!==""){
+                var delta = parseInt(prevMetricValue);
+              }
               var metricValueInt = parseInt(metricValue);
+              delta = metricValueInt - delta;
+              div.text(metricValue+": "+delta);
               if(metricValueInt<5000){
                 div.css("border", "1px solid green");
               }
