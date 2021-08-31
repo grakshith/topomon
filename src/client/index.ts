@@ -7,6 +7,7 @@ import FA2Layout from "graphology-layout-forceatlas2/worker";
 import NoverlapLayout from 'graphology-layout-forceatlas2/worker';
 import { Sigma } from "sigma";
 import { globalize } from "./utils";
+import $ from "jquery";
 
 // Retrieve sigma contaienr
 const container = document.getElementById("sigma-container");
@@ -22,7 +23,7 @@ const nodeReducer = (node: NodeKey, data: Attributes) => {
     return { ...data, color: "#f00", zIndex: 1};
   }
 
-  return data;
+  return {...data, zIndex: 0};
 }
 
 const edgeReducer = (edge: EdgeKey, data: Attributes) => {
@@ -30,7 +31,7 @@ const edgeReducer = (edge: EdgeKey, data: Attributes) => {
     return { ...data, color: "#f00", zIndex: 1};
   }
 
-  return data;
+  return {...data, zIndex:0};
 }
 
 // SIgma settings
@@ -45,11 +46,12 @@ const settings = {
 // Sigma init & render
 const renderer = new Sigma(graph, container, settings);
 
-globalize({graph, renderer});
-
 // node and edge dicts
 let nodeArray:string[] = [];
-let sessionMap = new Map();
+let sessionMap:Map<string, string> = new Map();
+let metricsMap:Map<string, string> = new Map();
+
+globalize({graph, renderer, sessionMap, metricsMap});
 
 // layout settings
 const NOVERLAP_SETTINGS = {
@@ -72,6 +74,51 @@ const outputReducer: NoverlapNodeReducer = (key, attr) => {
 // setup websocket connection
 const ws = new WebSocket('ws://localhost:8080/ws');
 
+// Functions
+
+function updateMetricsDivPositions(){
+  $(".metrics-tooltip").each(function(){
+    var div = $(this)
+    var nodeName = div.attr("id");
+    var nodeDisplayData = renderer.getNodeDisplayData(nodeName);
+    var coords = renderer.framedGraphToViewport({x: nodeDisplayData.x, y:nodeDisplayData.y});
+    var size = nodeDisplayData.size;
+    div.css({left:coords.x+size, top:coords.y+size});
+  });
+}
+
+function createMetricsDiv(nodeName:string){
+  var nodeTooltip = {
+    id:nodeName,
+    class:"metrics-tooltip",
+    css:{
+      "position": "absolute",
+      "background": "white",
+      "border": "1px solid blue"
+    }
+  };
+  var $div = $("<div>", nodeTooltip);
+  $div.hide();
+  $("#sigma-container").append($div);
+}
+
+function displayMetricsDiv(nodeName: string){
+  var div = $("#"+$.escapeSelector(nodeName));
+  if(div.text()!=""){
+    div.show();
+  }
+}
+
+function nodeSize(nodeName: string): number {
+  var splits = nodeName.split(":");
+  if(splits.length==3){
+    if(splits[1].startsWith("R")){
+      return 7;
+    }
+  }
+  return 4;
+}
+
 // Event listeners
 
 ws.addEventListener('open', function(event){
@@ -79,8 +126,9 @@ ws.addEventListener('open', function(event){
 });
 
 ws.addEventListener('message', function(event){
-    console.log("ws: ", event);
+    // console.log("ws: ", event);
     var wsEvent = JSON.parse(event.data)
+    // console.log("ws: ", wsEvent)
     switch(wsEvent.message){
       // case "AddNode":
       //     var node = graph.mergeNode(wsEvent.node, {
@@ -96,25 +144,30 @@ ws.addEventListener('message', function(event){
             graph.mergeNode(wsEvent.source.name, {
               x: Math.random(),
               y: Math.random(),
-              size: 4,
+              size: nodeSize(wsEvent.source.name),
               label: wsEvent.source.name,
               });
-              if(wsEvent.source.telemetrySession!=""){
-                sessionMap.set(wsEvent.source.telemetrySession, wsEvent.source.name);
-              }
+            createMetricsDiv(wsEvent.source.name);
+          }
+          if(wsEvent.source.session!==""){
+            sessionMap.set(wsEvent.source.name, wsEvent.source.session);
           }
           if(graph.hasNode(wsEvent.target.name)==false){
             graph.mergeNode(wsEvent.target.name, {
               x: Math.random(),
               y: Math.random(),
-              size: 4,
+              size: nodeSize(wsEvent.target.name),
               label: wsEvent.target.name,
               });
-              if(wsEvent.target.telemetrySession!=""){
-                sessionMap.set(wsEvent.target.telemetrySession, wsEvent.target.name);
-              }
+            createMetricsDiv(wsEvent.target.name);  
+          }
+          if(wsEvent.target.session!==""){
+            sessionMap.set(wsEvent.target.name, wsEvent.target.session);
           }
           var edge = graph.mergeEdge(wsEvent.source.name, wsEvent.target.name);
+          graph.mergeEdgeAttributes(edge, {
+            zIndex: 0,
+          });
         break;
       // case "RemoveNode":
       //   if(graph.hasNode(wsEvent.node)){
@@ -145,27 +198,55 @@ ws.addEventListener('message', function(event){
             graph.mergeNode(edge.source.name, {
               x: Math.random(),
               y: Math.random(),
-              size: 4,
+              size: nodeSize(edge.source.name),
               label: edge.source.name,
             });
-            if(edge.source.telemetrySession!=""){
-              sessionMap.set(edge.source.telemetrySession, edge.source.name);
-            }
+            createMetricsDiv(edge.source.name);
+          }
+          if(edge.source.session!==""){
+            sessionMap.set(edge.source.name, edge.source.session);
           }
           if(graph.hasNode(edge.target.name)==false){
             graph.mergeNode(edge.target.name, {
               x: Math.random(),
               y: Math.random(),
-              size: 4,
+              size: nodeSize(edge.target.name),
               label: edge.target.name,
             });
-            if(edge.target.telemetrySession!=""){
-              sessionMap.set(edge.target.telemetrySession, edge.target.name);
-            }
+            createMetricsDiv(edge.target.name);
+          }
+          if(edge.target.session!=""){
+            sessionMap.set(edge.target.name, edge.target.session);
           }
           var e = graph.mergeEdge(edge.source.name, edge.target.name);
+          graph.mergeEdgeAttributes(e, {
+            zIndex: 0,
+          });
         });
         break;
+      case "Metrics":
+        metricsMap = new Map(Object.entries(wsEvent.metrics));
+        $(".metrics-tooltip").each(function(){
+          var div = $(this)
+          var nodeName = div.attr("id");
+          var sessionKey = sessionMap.get(nodeName);
+          if(sessionKey!=undefined){
+            var metricValue = metricsMap.get(sessionKey);
+            if(metricValue!=undefined){
+              div.text(metricValue);
+              var metricValueInt = parseInt(metricValue);
+              if(metricValueInt<5000){
+                div.css("border", "1px solid green");
+              }
+              else if(metricValueInt>=5000 && metricValueInt<10000){
+                div.css("border", "1px solid blue");
+              }
+              else{
+                div.css("border", "1px solid red");
+              }
+            }
+          }
+        });
     }
     renderer.refresh();
     console.log("Refreshed");
@@ -177,7 +258,8 @@ renderer.on("clickNode", ({node, captor, event}) => {
   console.log("Clicking: ", node, captor, event);
   var neighbors = graph.neighbors(node);
   neighbors.forEach(neighbor => {
-    highlightedNodes.add(neighbor);    
+    highlightedNodes.add(neighbor);
+    displayMetricsDiv(neighbor);
   });
   highlightedNodes.add(node);
   var edges = graph.edges(node);
@@ -186,12 +268,12 @@ renderer.on("clickNode", ({node, captor, event}) => {
   });
 
   renderer.refresh();
-
+  displayMetricsDiv(node);
   // pan camera to node
-  renderer.getCamera().animate(renderer.getNodeDisplayData(node) as { x: number; y: number }, {
-    easing: "linear",
-    duration: 500,
-  });
+  // renderer.getCamera().animate(renderer.getNodeDisplayData(node) as { x: number; y: number }, {
+  //   easing: "linear",
+  //   duration: 500,
+  // });
 
 });
 
@@ -199,6 +281,13 @@ renderer.on("clickStage", ({node, captor, event})=>{
   console.log("Clicking stage: ", node, captor, event);
   highlightedNodes.clear();
   highlightedEdges.clear();
+
+  $(".metrics-tooltip").each(function(){
+  var div = $(this)
+  div.hide();
+  });
   renderer.getCamera().animatedReset({duration: 500});
   renderer.refresh();
-})
+});
+
+window.setInterval(updateMetricsDivPositions, 10);
