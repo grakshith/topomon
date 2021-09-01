@@ -20,7 +20,7 @@ let highlightedEdges = new Set();
 
 const nodeReducer = (node: NodeKey, data: Attributes) => {
   if(highlightedNodes.has(node)){
-    return { ...data, color: "#f00", zIndex: 1};
+    return { ...data, color: "#117A65", zIndex: 1};
   }
 
   return {...data, zIndex: 0};
@@ -72,7 +72,7 @@ const outputReducer: NoverlapNodeReducer = (key, attr) => {
 };
 
 // setup websocket connection
-const ws = new WebSocket('ws://localhost:8080/ws');
+const ws = new WebSocket('ws://'+window.location.host+'/ws');
 
 // Functions
 
