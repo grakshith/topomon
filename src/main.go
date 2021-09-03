@@ -87,7 +87,7 @@ func formatFilePath(filePath string) string {
 
 func main() {
 	// set log level
-	log.SetLevel(log.DebugLevel)
+	log.SetLevel(log.InfoLevel)
 	log.SetReportCaller(true)
 	jsonFormatter := &log.TextFormatter{
 		TimestampFormat: "2006-01-02T15:04:05.000000Z07:00",
@@ -114,7 +114,9 @@ func main() {
 
 	ngRefresher := server.MakeNetworkGraph(handler, esClient)
 
-	router := server.ConfigureURLS(handler)
+	promClient := server.MakePromClient(handler)
+
+	router := server.ConfigureURLS(handler, promClient)
 	httpServer := &http.Server{Addr: server.DefaultLocalConfig.BuildBindAddr(), Handler: router}
 
 	servicesWG.Add(1)
@@ -127,13 +129,13 @@ func main() {
 	}(servicesWG)
 
 	// spin up services
-	servicesWG.Add(3)
+	servicesWG.Add(4)
 	go handler.Run(ctx, servicesWG)
 	go esClient.Run(ctx, servicesWG)
 	go ngRefresher.Run(ctx, servicesWG)
-	promClient := server.MakePromClient(handler)
+	go promClient.Run(ctx, servicesWG)
 
-	promClient.StartMetricsService(ctx)
+	log.Info("Started services")
 
 	// register SIGINT signal
 	signalChan := make(chan os.Signal, 1)

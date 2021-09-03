@@ -3,18 +3,24 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/algorand/go-deadlock"
 	log "github.com/sirupsen/logrus"
 )
 
 type PromClient struct {
-	prefixURL    *url.URL
-	httpClient   *http.Client
-	handler      *ConnectionHandler
-	queryStrings []string
+	queryStringsMu deadlock.RWMutex
+	prefixURL      *url.URL
+	httpClient     *http.Client
+	handler        *ConnectionHandler
+	queryStrings   []string
+	restartChan    chan bool
 }
 
 // PromQueryResp stores the response from the metrics server
@@ -40,13 +46,15 @@ type VectorResult struct {
 
 type MetricsMessage struct {
 	MessageType string            `json:"message"`
+	MetricName  string            `json:"name"`
 	Metrics     map[string]string `json:"metrics"`
 }
 
-func MakeMetricsMessage(queryResp QueryRespData) MetricsMessage {
+func MakeMetricsMessage(metricName string, queryResp QueryRespData) MetricsMessage {
 	resultType := queryResp.ResultType
 	metricsMessage := MetricsMessage{
 		MessageType: "Metrics",
+		MetricName:  metricName,
 		Metrics:     make(map[string]string),
 	}
 	switch resultType {
@@ -85,10 +93,12 @@ func makePromPrefix() *url.URL {
 
 func MakePromClient(handler *ConnectionHandler) *PromClient {
 	return &PromClient{
-		prefixURL:    makePromPrefix(),
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
-		handler:      handler,
-		queryStrings: defaultMetrics,
+		queryStringsMu: deadlock.RWMutex{},
+		prefixURL:      makePromPrefix(),
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		handler:        handler,
+		queryStrings:   defaultMetrics,
+		restartChan:    make(chan bool),
 	}
 }
 
@@ -148,14 +158,71 @@ func (pClient *PromClient) sendMetrics(ctx context.Context, metricQueryString st
 			if err != nil {
 				break
 			}
-			metricsMessage := MakeMetricsMessage(*result)
+			metricsMessage := MakeMetricsMessage(metricQueryString, *result)
 			pClient.handler.Send <- metricsMessage
 		}
 	}
 }
 
-func (pClient *PromClient) StartMetricsService(ctx context.Context) {
+func (pClient *PromClient) Run(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	metricsCtx, cancel := context.WithCancel(ctx)
+	pClient.startMetrics(metricsCtx)
+
+	for {
+		select {
+		case <-pClient.restartChan:
+			cancel()
+			metricsCtx, cancel = context.WithCancel(ctx)
+			pClient.startMetrics(metricsCtx)
+		case <-ctx.Done():
+			cancel()
+			log.Info("Terminating metrics service")
+			return
+		}
+	}
+}
+
+func (pClient *PromClient) startMetrics(ctx context.Context) {
+	pClient.queryStringsMu.RLock()
+	defer pClient.queryStringsMu.RUnlock()
 	for _, metricQueryString := range pClient.queryStrings {
+		if metricQueryString == "" {
+			continue
+		}
 		go pClient.sendMetrics(ctx, metricQueryString)
 	}
+}
+
+func (pClient *PromClient) metricsAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		pClient.queryStringsMu.RLock()
+		defer pClient.queryStringsMu.RUnlock()
+		var metricsBuilder strings.Builder
+		for _, metric := range pClient.queryStrings {
+			metricsBuilder.WriteString(metric)
+			metricsBuilder.WriteString("\n")
+		}
+		displayTemplate(w, "metrics", metricsBuilder.String(), nil)
+		return
+	} else {
+		pClient.queryStringsMu.Lock()
+		defer pClient.queryStringsMu.Unlock()
+
+		metricStrings := strings.Split(strings.TrimSpace(r.FormValue("data")), "\n")
+		pClient.queryStrings = metricStrings
+		pClient.restartChan <- true
+		displayTemplate(w, "metrics", r.FormValue("data"), nil)
+		return
+	}
+}
+
+func displayTemplate(w http.ResponseWriter, name string, data string, err error) {
+	template := template.Must(template.ParseFiles("templates/form.html"))
+	template.Execute(w, struct {
+		Name  string
+		Data  string
+		Error error
+	}{name, data, err})
 }
