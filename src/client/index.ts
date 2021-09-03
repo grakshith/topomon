@@ -20,7 +20,7 @@ let highlightedEdges = new Set();
 
 const nodeReducer = (node: NodeKey, data: Attributes) => {
   if(highlightedNodes.has(node)){
-    return { ...data, color: "#117A65", zIndex: 1};
+    return { ...data, color: "#f00", zIndex: 1};
   }
 
   return {...data, zIndex: 0};
@@ -28,7 +28,7 @@ const nodeReducer = (node: NodeKey, data: Attributes) => {
 
 const edgeReducer = (edge: EdgeKey, data: Attributes) => {
   if(highlightedEdges.has(edge)){
-    return { ...data, color: "#f00", zIndex: 1};
+    return { ...data, color: "#00f", zIndex: 1};
   }
 
   return {...data, zIndex:0};
@@ -49,7 +49,7 @@ const renderer = new Sigma(graph, container, settings);
 // node and edge dicts
 let nodeArray:string[] = [];
 let sessionMap:Map<string, string> = new Map();
-let metricsMap:Map<string, string> = new Map();
+let metricsMap:Map<string, Map<string, string>> = new Map();
 
 globalize({graph, renderer, sessionMap, metricsMap});
 
@@ -73,6 +73,9 @@ const outputReducer: NoverlapNodeReducer = (key, attr) => {
 
 // setup websocket connection
 const ws = new WebSocket('ws://'+window.location.host+'/ws');
+
+// metrics selector
+var currentMetric:string;
 
 // Functions
 
@@ -100,6 +103,24 @@ function createMetricsDiv(nodeName:string){
   var $div = $("<div>", nodeTooltip);
   $div.hide();
   $("#sigma-container").append($div);
+}
+
+function createMetricButton(metricName: string){
+  var metricButton = {
+    type: "radio",
+    id: "r-"+metricName,
+    name: "metrics-radio-button",
+    value: metricName,
+    click: function() {currentMetric = metricName;}
+  };
+  var $but = $("<input/>", metricButton);
+  var metricButtonLabel = {
+    for: metricName,
+    html: metricName
+  };
+  var $label = $("<label>", metricButtonLabel);
+  $("#panel").append($but);
+  $("#panel").append($label);
 }
 
 function displayMetricsDiv(nodeName: string){
@@ -225,13 +246,20 @@ ws.addEventListener('message', function(event){
         });
         break;
       case "Metrics":
-        metricsMap = new Map(Object.entries(wsEvent.metrics));
+        var metricName = wsEvent.name;
+        if(!document.getElementById("r-"+metricName)){
+          createMetricButton(metricName);
+        }
+        if(currentMetric!==metricName){
+          break;
+        }
+        metricsMap.set(currentMetric, new Map(Object.entries(wsEvent.metrics)));
         $(".metrics-tooltip").each(function(){
           var div = $(this)
           var nodeName = div.attr("id");
           var sessionKey = sessionMap.get(nodeName);
           if(sessionKey!=undefined){
-            var metricValue = metricsMap.get(sessionKey);
+            var metricValue = metricsMap.get(currentMetric).get(sessionKey);
             if(metricValue!=undefined){
               var prevMetricValue = div.text();
               if(prevMetricValue!==""){

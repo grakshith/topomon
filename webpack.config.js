@@ -9,7 +9,7 @@ entry = {
 
 module.exports = {
   entry: entry,
-  mode: 'development',
+  mode: 'production',
   module: {
     rules: [
       {
