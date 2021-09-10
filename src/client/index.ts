@@ -1,10 +1,6 @@
 import  DirectedGraph from "graphology";
-import randomLayout from "graphology-layout/random";
-import noverlap, { NoverlapNodeReducer } from "graphology-layout-noverlap";
 import { Attributes, EdgeKey, NodeKey } from "graphology-types";
-import { animateNodes } from "sigma/utils/animate";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
-import NoverlapLayout from 'graphology-layout-forceatlas2/worker';
 import { Sigma } from "sigma";
 import { globalize } from "./utils";
 import $ from "jquery";
@@ -47,7 +43,6 @@ const settings = {
 const renderer = new Sigma(graph, container, settings);
 
 // node and edge dicts
-let nodeArray:string[] = [];
 let sessionMap:Map<string, string> = new Map();
 let metricsMap:Map<string, Map<string, string>> = new Map();
 
@@ -62,14 +57,6 @@ const NOVERLAP_SETTINGS = {
 
 const layout = new FA2Layout(graph, { settings: { slowDown: 1000000 } });
 layout.start();
-
-const inputReducer: NoverlapNodeReducer = (key, attr) => {
-  return { ...attr, ...renderer.graphToViewport(attr) };
-};
-
-const outputReducer: NoverlapNodeReducer = (key, attr) => {
-  return { ...attr, ...renderer.graphToViewport(attr) };
-};
 
 // setup websocket connection
 const ws = new WebSocket('ws://'+window.location.host+'/ws');
@@ -140,6 +127,18 @@ function nodeSize(nodeName: string): number {
   return 4;
 }
 
+function addNode(nodeName: string){
+  if(graph.hasNode(nodeName)==false){
+    graph.mergeNode(nodeName, {
+      x: Math.random(),
+      y: Math.random(),
+      size: nodeSize(nodeName),
+      label: nodeName,
+    });
+    createMetricsDiv(nodeName);
+  }
+}
+
 // Event listeners
 
 ws.addEventListener('open', function(event){
@@ -147,41 +146,20 @@ ws.addEventListener('open', function(event){
 });
 
 ws.addEventListener('message', function(event){
-    // console.log("ws: ", event);
     var wsEvent = JSON.parse(event.data)
-    // console.log("ws: ", wsEvent)
     switch(wsEvent.message){
-      // case "AddNode":
-      //     var node = graph.mergeNode(wsEvent.node, {
-      //       x: Math.random(),
-      //       y: Math.random(),
-      //       size: 4,
-      //       label: wsEvent.node,
-      //     });
-      //     nodeArray.push(node);
-      //   break;
+      case "AddNode":
+          addNode(wsEvent.node.name);
+        break;
       case "AddEdge":
-          if(graph.hasNode(wsEvent.source.name)==false){
-            graph.mergeNode(wsEvent.source.name, {
-              x: Math.random(),
-              y: Math.random(),
-              size: nodeSize(wsEvent.source.name),
-              label: wsEvent.source.name,
-              });
-            createMetricsDiv(wsEvent.source.name);
-          }
+          addNode(wsEvent.source.name);
+          
           if(wsEvent.source.session!==""){
             sessionMap.set(wsEvent.source.name, wsEvent.source.session);
           }
-          if(graph.hasNode(wsEvent.target.name)==false){
-            graph.mergeNode(wsEvent.target.name, {
-              x: Math.random(),
-              y: Math.random(),
-              size: nodeSize(wsEvent.target.name),
-              label: wsEvent.target.name,
-              });
-            createMetricsDiv(wsEvent.target.name);  
-          }
+          
+          addNode(wsEvent.target.name);
+          
           if(wsEvent.target.session!==""){
             sessionMap.set(wsEvent.target.name, wsEvent.target.session);
           }
@@ -190,12 +168,11 @@ ws.addEventListener('message', function(event){
             zIndex: 0,
           });
         break;
-      // case "RemoveNode":
-      //   if(graph.hasNode(wsEvent.node)){
-      //     var node:string = wsEvent.node;
-      //     graph.dropNode(node);
-      //   }
-      //   break;
+      case "RemoveNode":
+        if(graph.hasNode(wsEvent.node.name)){
+          graph.dropNode(wsEvent.node.name);
+        }
+        break;
       case "RemoveEdge":
         if(graph.hasEdge(wsEvent.source.name, wsEvent.target.name)){
           var edge = graph.edge(wsEvent.source.name, wsEvent.target.name);
@@ -204,38 +181,15 @@ ws.addEventListener('message', function(event){
         break;
       case "NetworkGraph":
         graph.clear()
-        // wsEvent.nodes.forEach((node: string) => {
-        //   if(graph.hasNode(node)==false){
-        //     graph.mergeNode(node, {
-        //       x: Math.random(),
-        //       y: Math.random(),
-        //       size: 4,
-        //       label: node,
-        //     });  
-        //   }
-        // });
+        wsEvent.nodes.forEach((node: string) => {
+          addNode(node);
+        });
         wsEvent.edges.forEach((edge:any) => {
-          if(graph.hasNode(edge.source.name)==false){
-            graph.mergeNode(edge.source.name, {
-              x: Math.random(),
-              y: Math.random(),
-              size: nodeSize(edge.source.name),
-              label: edge.source.name,
-            });
-            createMetricsDiv(edge.source.name);
-          }
+          addNode(edge.source.name);
           if(edge.source.session!==""){
             sessionMap.set(edge.source.name, edge.source.session);
           }
-          if(graph.hasNode(edge.target.name)==false){
-            graph.mergeNode(edge.target.name, {
-              x: Math.random(),
-              y: Math.random(),
-              size: nodeSize(edge.target.name),
-              label: edge.target.name,
-            });
-            createMetricsDiv(edge.target.name);
-          }
+          addNode(edge.target.name);
           if(edge.target.session!=""){
             sessionMap.set(edge.target.name, edge.target.session);
           }
@@ -280,11 +234,10 @@ ws.addEventListener('message', function(event){
             }
           }
         });
+        return;
     }
     renderer.refresh();
     console.log("Refreshed");
-    // const layout = noverlap(graph, { inputReducer, outputReducer, maxIterations: 500, settings: NOVERLAP_SETTINGS });
-    // animateNodes(graph, layout, { duration: 100, easing: "linear" }, null);
 });
 
 renderer.on("clickNode", ({node, captor, event}) => {
@@ -302,16 +255,9 @@ renderer.on("clickNode", ({node, captor, event}) => {
 
   renderer.refresh();
   displayMetricsDiv(node);
-  // pan camera to node
-  // renderer.getCamera().animate(renderer.getNodeDisplayData(node) as { x: number; y: number }, {
-  //   easing: "linear",
-  //   duration: 500,
-  // });
-
 });
 
 renderer.on("clickStage", ({node, captor, event})=>{
-  console.log("Clicking stage: ", node, captor, event);
   highlightedNodes.clear();
   highlightedEdges.clear();
 
