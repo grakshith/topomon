@@ -228,7 +228,7 @@ func (esClient *ESClient) buildQueryString(queryString, timestamp string, size i
 func (esClient *ESClient) Run(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	ticker := time.NewTicker(time.Duration(DefaultLocalConfig.ESQueryRefreshPeriod) * time.Second)
+	ticker := time.NewTicker(time.Duration(CurrentConfig.ESQueryRefreshPeriod) * time.Second)
 
 	// initially query for messages from the past hour
 	queryTimestamp := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339Nano)
