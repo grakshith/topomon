@@ -6,10 +6,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/algorand/go-deadlock"
 	log "github.com/sirupsen/logrus"
 )
 
+// NetworkGraphMessage consists of all the nodes and edges
+// in the server network map. This is sent to bootstrap the
+// client when the client connects with the server for
+// the first time, or when the server performs a catchup with
+// the telemetry server.
 type NetworkGraphMessage struct {
 	MessageType string           `json:"message"`
 	Nodes       []string         `json:"nodes"`
@@ -26,22 +30,20 @@ type nodeStats struct {
 	telemetrySession string
 }
 type NetworkGraph struct {
-	ngMutex        *deadlock.RWMutex
-	networkMap     map[string]map[string]bool
+	// networkMap     map[string]map[string]bool
 	outgoingMap    map[string]map[string]bool
 	incomingMap    map[string]map[string]bool
 	nodeMap        map[string]*nodeStats
 	handler        *ConnectionHandler
 	esClient       *ESClient
-	dequeChan      chan Hit
-	messageLatency float64
-	catchup        bool
+	dequeChan      chan Hit // the channel used to dequeue telemetry events
+	messageLatency float64  // the time difference between the timestamps of telemetry events in both the ends of the queue
+	catchup        bool     // indicates whether the server is in catchup state
 }
 
 func MakeNetworkGraph(handler *ConnectionHandler, esClient *ESClient) *NetworkGraph {
 	ng := &NetworkGraph{
-		ngMutex:     &deadlock.RWMutex{},
-		networkMap:  make(map[string]map[string]bool),
+		// networkMap:  make(map[string]map[string]bool),
 		outgoingMap: make(map[string]map[string]bool),
 		incomingMap: make(map[string]map[string]bool),
 		nodeMap:     make(map[string]*nodeStats),
@@ -60,6 +62,8 @@ func logEdgeWithNodeDegree(srcDegree int, destDegree int) *log.Entry {
 	})
 }
 
+// dequeueTelemetryEvents dequeues telemetry events and updates the
+// messageLatency
 func (ng *NetworkGraph) dequeueTelemetryEvents(ctx context.Context) {
 	for {
 		select {
@@ -90,19 +94,13 @@ func (ng *NetworkGraph) dequeueTelemetryEvents(ctx context.Context) {
 		if !lastTimestamp.IsZero() && !hitTimestamp.IsZero() {
 			ng.messageLatency = lastTimestamp.Sub(hitTimestamp).Seconds()
 		}
-		// if ng.messageLatency < 0 {
-		// 	log.Debug("Last TS: ", lastTimestamp.Format(time.RFC3339Nano))
-		// 	log.Debug("Hit TS: ", hitTimestamp.Format(time.RFC3339Nano))
-		// }
 		ng.esClient.metrics.metricsMutex.Unlock()
 		ng.dequeChan <- hit
 	}
 }
 
+// calculateMapDelta calculates additions and deletions to the map based on the elasticsearch query response.
 func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interface{}) {
-	// ng.ngMutex.Lock()
-	// defer ng.ngMutex.Unlock()
-
 	eventHost := queryHit.Source.Host
 
 	var additions []interface{}
@@ -119,8 +117,11 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		sourceNode := formatNodeName(eventHost, eventHostInstanceName)
 		sourceSession := connectPeerDetails.Session
 		destNode := formatNodeName(connectPeerDetails.Details.HostName, connectPeerDetails.Details.InstanceName)
+		// only one of source and destination has the session information
 		destSession := ""
 
+		// networkMap and invNetworkMap are references to outgoing and incoming maps
+		// based on the direction of the edge
 		networkMap := ng.outgoingMap
 		invNetworkMap := ng.incomingMap
 
@@ -129,6 +130,7 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 			invNetworkMap = ng.outgoingMap
 		}
 
+		// create new entry if not present
 		_, exists := networkMap[sourceNode]
 		if !exists {
 			networkMap[sourceNode] = make(map[string]bool)
@@ -141,27 +143,31 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 
 		_, exists = networkMap[sourceNode][destNode]
 		if !exists {
+			// add an edge between sourceNode and destNode based on the connection direction
 			networkMap[sourceNode][destNode] = true
 			invNetworkMap[destNode][sourceNode] = true
+			// update source node degree
 			nodeMsg := checkNodeMapForNodeChanges(ng.nodeMap, sourceNode, 1, sourceSession)
 			if nodeMsg != nil {
 				additions = append(additions, nodeMsg)
 				log.WithField("degree", ng.nodeMap[sourceNode].degree).Debug(nodeMsg)
 			}
+			// update dest node degree
 			nodeMsg = checkNodeMapForNodeChanges(ng.nodeMap, destNode, 1, destSession)
 			if nodeMsg != nil {
 				additions = append(additions, nodeMsg)
 				log.WithField("degree", ng.nodeMap[destNode].degree).Debug(nodeMsg)
 			}
 
+			// send AddEdge message
 			var addEdgeMsg AddEdge
 			if connectPeerDetails.Details.Incoming {
 				addEdgeMsg = MakeAddEdge(destNode, destSession, sourceNode, sourceSession)
-				updateNetworkMap(ng.networkMap, destNode, sourceNode, true)
+				// updateNetworkMap(ng.networkMap, destNode, sourceNode, true)
 				logEdgeWithNodeDegree(ng.nodeMap[destNode].degree, ng.nodeMap[sourceNode].degree).Debug(addEdgeMsg)
 			} else {
 				addEdgeMsg = MakeAddEdge(sourceNode, sourceSession, destNode, destSession)
-				updateNetworkMap(ng.networkMap, sourceNode, destNode, true)
+				// updateNetworkMap(ng.networkMap, sourceNode, destNode, true)
 				logEdgeWithNodeDegree(ng.nodeMap[sourceNode].degree, ng.nodeMap[destNode].degree).Debug(addEdgeMsg)
 			}
 			additions = append(additions, addEdgeMsg)
@@ -176,8 +182,11 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		sourceNode := formatNodeName(eventHost, eventHostInstanceName)
 		sourceSession := disconnectPeerDetails.Session
 		destNode := formatNodeName(disconnectPeerDetails.Details.HostName, disconnectPeerDetails.Details.InstanceName)
+		// only one of source and destination has the session information
 		destSession := ""
 
+		// networkMap and invNetworkMap are references to outgoing and incoming maps
+		// based on the direction of the edge
 		networkMap := ng.outgoingMap
 		invNetworkMap := ng.incomingMap
 
@@ -192,28 +201,32 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		}
 		_, exists = networkMap[sourceNode][destNode]
 		if exists {
+			// delete the edge between sourceNode and destNode
 			delete(networkMap[sourceNode], destNode)
 			delete(invNetworkMap[destNode], sourceNode)
+			// update the sourceNode degree
 			nodeMsg := checkNodeMapForNodeChanges(ng.nodeMap, sourceNode, -1, sourceSession)
 			if nodeMsg != nil {
 				deletions = append(deletions, nodeMsg)
 				log.WithField("degree", 0).Debug(nodeMsg)
 			}
 
+			// update the destNode degree
 			nodeMsg = checkNodeMapForNodeChanges(ng.nodeMap, destNode, -1, destSession)
 			if nodeMsg != nil {
 				deletions = append(deletions, nodeMsg)
 				log.WithField("degree", 0).Debug(nodeMsg)
 			}
 
+			// send RemoveEdge message
 			var removeEdgeMsg RemoveEdge
 			if disconnectPeerDetails.Details.Incoming {
 				removeEdgeMsg = MakeRemoveEdge(destNode, destSession, sourceNode, sourceSession)
-				updateNetworkMap(ng.networkMap, destNode, sourceNode, false)
+				// updateNetworkMap(ng.networkMap, destNode, sourceNode, false)
 				logEdgeWithNodeDegree(ng.nodeMap[destNode].degree, ng.nodeMap[sourceNode].degree).Debug(removeEdgeMsg)
 			} else {
 				removeEdgeMsg = MakeRemoveEdge(sourceNode, sourceSession, destNode, destSession)
-				updateNetworkMap(ng.networkMap, sourceNode, destNode, false)
+				// updateNetworkMap(ng.networkMap, sourceNode, destNode, false)
 				logEdgeWithNodeDegree(ng.nodeMap[sourceNode].degree, ng.nodeMap[destNode].degree).Debug(removeEdgeMsg)
 			}
 			deletions = append(deletions, removeEdgeMsg)
@@ -229,6 +242,7 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		sourceNode := formatNodeName(eventHost, eventHostInstanceName)
 		sourceSession := peerConnectionsDetails.Session
 
+		// latestIncomingMap stores the incoming connections of the sourceNode
 		latestIncomingMap := make(map[string]bool)
 		for _, peer := range peerConnectionsDetails.Details.IncomingPeers {
 			peerNode := formatNodeName(peer.HostName, peer.InstanceName)
@@ -238,76 +252,62 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		// calculate additions for incoming peers
 		for peerHostname := range latestIncomingMap {
 			if _, exists := ng.incomingMap[sourceNode][peerHostname]; !exists {
-				// check if mapping exists in inverse map
+				// create or update the incoming and outgoing mappings
 				createOrUpdateDirectionMap(ng.incomingMap, sourceNode, peerHostname, true)
 				createOrUpdateDirectionMap(ng.outgoingMap, peerHostname, sourceNode, true)
 
+				// update the sourceNode degree
 				nodeMsg := checkNodeMapForNodeChanges(ng.nodeMap, sourceNode, 1, sourceSession)
 				if nodeMsg != nil {
 					additions = append(additions, nodeMsg)
 					log.WithField("degree", ng.nodeMap[sourceNode].degree).Debug(nodeMsg)
 				}
+				// update the peer node degree
 				nodeMsg = checkNodeMapForNodeChanges(ng.nodeMap, peerHostname, 1, "")
 				if nodeMsg != nil {
 					additions = append(additions, nodeMsg)
 					log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
 				}
 
+				// add edge from peer node to sourceNode
 				addEdgeMsg := MakeAddEdge(peerHostname, "", sourceNode, sourceSession)
 				additions = append(additions, addEdgeMsg)
 				logEdgeWithNodeDegree(ng.nodeMap[peerHostname].degree, ng.nodeMap[sourceNode].degree).Debug(addEdgeMsg)
-				updateNetworkMap(ng.networkMap, peerHostname, sourceNode, true)
+				// updateNetworkMap(ng.networkMap, peerHostname, sourceNode, true)
 
 			}
 		}
 
 		// calculate deletions for incoming peers
-		// for peerHostname := range ng.incomingMap[sourceNode] {
-		// 	if _, exists := latestIncomingMap[peerHostname]; !exists {
-		// 		createOrUpdateDirectionMap(ng.incomingMap, sourceNode, peerHostname, false)
-		// 		createOrUpdateDirectionMap(ng.outgoingMap, peerHostname, sourceNode, false)
-
-		// 		nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
-		// 		if nodeMsg != nil {
-		// 			deletions = append(deletions, nodeMsg)
-		// 			log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
-		// 		}
-		// 		nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, -1)
-		// 		if nodeMsg != nil {
-		// 			deletions = append(deletions, nodeMsg)
-		// 			log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
-		// 		}
-		// 		removeEdgeMsg := MakeRemoveEdge(peerHostname, sourceNode)
-		// 		deletions = append(deletions, removeEdgeMsg)
-		// 		logEdgeWithNodeDegree(ng.nodeMap[peerHostname], ng.nodeMap[sourceNode]).Debug(removeEdgeMsg)
-		// 		updateNetworkMap(ng.networkMap, peerHostname, sourceNode, false)
-		// 	}
-		// }
-
 		for peerHostname := range ng.outgoingMap {
 			if _, exists := ng.outgoingMap[peerHostname][sourceNode]; exists {
 				if _, existsInLatestMap := latestIncomingMap[peerHostname]; !existsInLatestMap {
+					// delete the mappings from sourceNode to peer node in the maps
 					createOrUpdateDirectionMap(ng.incomingMap, sourceNode, peerHostname, false)
 					createOrUpdateDirectionMap(ng.outgoingMap, peerHostname, sourceNode, false)
 
+					// update the sourceNode degree
 					nodeMsg := checkNodeMapForNodeChanges(ng.nodeMap, sourceNode, -1, sourceSession)
 					if nodeMsg != nil {
 						deletions = append(deletions, nodeMsg)
 						log.WithField("degree", ng.nodeMap[sourceNode].degree).Debug(nodeMsg)
 					}
+					// update peer node degree
 					nodeMsg = checkNodeMapForNodeChanges(ng.nodeMap, peerHostname, -1, "")
 					if nodeMsg != nil {
 						deletions = append(deletions, nodeMsg)
 						log.WithField("degree", ng.nodeMap[peerHostname].degree).Debug(nodeMsg)
 					}
+					// remove the edge from peer node to sourceNode
 					removeEdgeMsg := MakeRemoveEdge(peerHostname, "", sourceNode, sourceSession)
 					deletions = append(deletions, removeEdgeMsg)
 					logEdgeWithNodeDegree(ng.nodeMap[peerHostname].degree, ng.nodeMap[sourceNode].degree).Debug(removeEdgeMsg)
-					updateNetworkMap(ng.networkMap, peerHostname, sourceNode, false)
+					// updateNetworkMap(ng.networkMap, peerHostname, sourceNode, false)
 				}
 			}
 		}
 
+		// latestOutgoingMap stores the outgoing connections of sourceNode
 		latestOutgoingMap := make(map[string]bool)
 		for _, peer := range peerConnectionsDetails.Details.OutgoingPeers {
 			peerNode := formatNodeName(peer.HostName, peer.InstanceName)
@@ -317,70 +317,59 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 		// calculate additions for outgoing peers
 		for peerHostname := range latestOutgoingMap {
 			if _, exists := ng.outgoingMap[sourceNode][peerHostname]; !exists {
+				// create or update incoming and outgoing maps
 				createOrUpdateDirectionMap(ng.outgoingMap, sourceNode, peerHostname, true)
 				createOrUpdateDirectionMap(ng.incomingMap, peerHostname, sourceNode, true)
+
+				// update sourceNode degree
 				nodeMsg := checkNodeMapForNodeChanges(ng.nodeMap, sourceNode, 1, sourceSession)
 				if nodeMsg != nil {
 					additions = append(additions, nodeMsg)
 					log.WithField("degree", ng.nodeMap[sourceNode].degree).Debug(nodeMsg)
 				}
+
+				// update peer node degree
 				nodeMsg = checkNodeMapForNodeChanges(ng.nodeMap, peerHostname, 1, "")
 				if nodeMsg != nil {
 					additions = append(additions, nodeMsg)
 					log.WithField("degree", ng.nodeMap[peerHostname].degree).Debug(nodeMsg)
 				}
 
+				// add edge from sourceNode to peer node
 				addEdgeMsg := MakeAddEdge(sourceNode, sourceSession, peerHostname, "")
 				additions = append(additions, addEdgeMsg)
 				logEdgeWithNodeDegree(ng.nodeMap[sourceNode].degree, ng.nodeMap[peerHostname].degree).Debug(addEdgeMsg)
-				updateNetworkMap(ng.networkMap, sourceNode, peerHostname, true)
+				// updateNetworkMap(ng.networkMap, sourceNode, peerHostname, true)
 			}
 		}
 
 		// calculate deletions for outgoing peers
-		// for peerHostname := range ng.outgoingMap[sourceNode] {
-		// 	if _, exists := latestOutgoingMap[peerHostname]; !exists {
-		// 		createOrUpdateDirectionMap(ng.outgoingMap, sourceNode, peerHostname, false)
-		// 		createOrUpdateDirectionMap(ng.incomingMap, peerHostname, sourceNode, false)
-
-		// 		nodeMsg := checkNodeMapForNodeChanges(&ng.nodeMap, sourceNode, -1)
-		// 		if nodeMsg != nil {
-		// 			deletions = append(deletions, nodeMsg)
-		// 			log.WithField("degree", ng.nodeMap[sourceNode]).Debug(nodeMsg)
-		// 		}
-		// 		nodeMsg = checkNodeMapForNodeChanges(&ng.nodeMap, peerHostname, -1)
-		// 		if nodeMsg != nil {
-		// 			deletions = append(deletions, nodeMsg)
-		// 			log.WithField("degree", ng.nodeMap[peerHostname]).Debug(nodeMsg)
-		// 		}
-
-		// 		removeEdgeMsg := MakeRemoveEdge(sourceNode, peerHostname)
-		// 		deletions = append(deletions, removeEdgeMsg)
-		// 		logEdgeWithNodeDegree(ng.nodeMap[sourceNode], ng.nodeMap[peerHostname]).Debug(removeEdgeMsg)
-		// 		updateNetworkMap(ng.networkMap, sourceNode, peerHostname, false)
-		// 	}
-		// }
-
 		for peerHostname := range ng.incomingMap {
 			if _, exists := ng.incomingMap[peerHostname][sourceNode]; exists {
 				if _, existsInLatestMap := latestOutgoingMap[peerHostname]; !existsInLatestMap {
+					// delete mappings from sourceNode to peer node
 					createOrUpdateDirectionMap(ng.outgoingMap, sourceNode, peerHostname, false)
 					createOrUpdateDirectionMap(ng.incomingMap, peerHostname, sourceNode, false)
 
+					// update sourceNode degree
 					nodeMsg := checkNodeMapForNodeChanges(ng.nodeMap, sourceNode, -1, sourceSession)
 					if nodeMsg != nil {
 						deletions = append(deletions, nodeMsg)
 						log.WithField("degree", ng.nodeMap[sourceNode].degree).Debug(nodeMsg)
 					}
+
+					// update peer node degree
 					nodeMsg = checkNodeMapForNodeChanges(ng.nodeMap, peerHostname, -1, "")
 					if nodeMsg != nil {
 						deletions = append(deletions, nodeMsg)
 						log.WithField("degree", ng.nodeMap[peerHostname].degree).Debug(nodeMsg)
 					}
+
+					// remove the edge from sourceNode to peer node
 					removeEdgeMsg := MakeRemoveEdge(sourceNode, sourceSession, peerHostname, "")
 					deletions = append(deletions, removeEdgeMsg)
 					logEdgeWithNodeDegree(ng.nodeMap[sourceNode].degree, ng.nodeMap[peerHostname].degree).Debug(removeEdgeMsg)
-					updateNetworkMap(ng.networkMap, sourceNode, peerHostname, false)
+					// updateNetworkMap(ng.networkMap, sourceNode, peerHostname, false)
 				}
 			}
 		}
@@ -389,6 +378,8 @@ func (ng *NetworkGraph) calculateMapDelta(queryHit Hit) ([]interface{}, []interf
 	return additions, deletions
 }
 
+// Returns the formatted name of the node by combining the node name in
+// telemetry GUID and telemetry instance
 func formatNodeName(telemetryGUID string, telemetryInstance string) string {
 	var nodeNameBuilder strings.Builder
 	split := strings.Split(telemetryGUID, ":")
@@ -401,6 +392,7 @@ func formatNodeName(telemetryGUID string, telemetryInstance string) string {
 	return nodeNameBuilder.String()
 }
 
+// Checks if an edge from srcNode to destNode exists and delete or set the mapping based on value
 func createOrUpdateDirectionMap(directionMap map[string]map[string]bool, srcNode string, destNode string, value bool) {
 	// check if srcNode exists
 	if _, exists := directionMap[srcNode]; !exists {
@@ -417,6 +409,7 @@ func getNodeTelemetrySession(nodeMap map[string]*nodeStats, node string) string 
 	return nodeMap[node].telemetrySession
 }
 
+// Updates the degree of the node and return AddNode/RemoveNode messages if necessary
 func checkNodeMapForNodeChanges(nodeMap map[string]*nodeStats, node string, count int, session string) interface{} {
 	if ns, exists := nodeMap[node]; !exists || ns.degree == 0 {
 		nodeMap[node] = &nodeStats{
@@ -438,49 +431,32 @@ func checkNodeMapForNodeChanges(nodeMap map[string]*nodeStats, node string, coun
 	return nil
 }
 
-func updateNetworkMap(networkMap map[string]map[string]bool, sourceNode string, targetNode string, value bool) {
-	_, exists := networkMap[sourceNode]
-	switch value {
-	case true:
-		if !exists {
-			networkMap[sourceNode] = make(map[string]bool)
-		}
-		networkMap[sourceNode][targetNode] = value
-	case false:
-		if exists {
-			delete(networkMap[sourceNode], targetNode)
-		}
-	}
-}
-
-func checkInverseMappingExists(invMap *map[string]map[string]bool, srcNode string, destNode string) bool {
-	if _, exists := (*invMap)[srcNode]; !exists {
-		return false
-	}
-	if _, exists := (*invMap)[srcNode][destNode]; !exists {
-		return false
-	}
-	return true
-}
+// func updateNetworkMap(networkMap map[string]map[string]bool, sourceNode string, targetNode string, value bool) {
+// 	_, exists := networkMap[sourceNode]
+// 	switch value {
+// 	case true:
+// 		if !exists {
+// 			networkMap[sourceNode] = make(map[string]bool)
+// 		}
+// 		networkMap[sourceNode][targetNode] = value
+// 	case false:
+// 		if exists {
+// 			delete(networkMap[sourceNode], targetNode)
+// 		}
+// 	}
+// }
 
 func (ng *NetworkGraph) makeNetworkGraphMessage() interface{} {
-	// ng.ngMutex.Lock()
-	// defer ng.ngMutex.Unlock()
-
 	nwGraphMsg := NetworkGraphMessage{
 		MessageType: "NetworkGraph",
 	}
-
-	// log.Debug("Node map: ", ng.nodeMap)
-	// log.Debug("Out map: ", ng.networkMap)
-	// log.Debug("In map: ", ng.invNetworkMap)
 
 	for node := range ng.nodeMap {
 		nwGraphMsg.Nodes = append(nwGraphMsg.Nodes, node)
 		log.Debug("Global NW node map: ", node)
 	}
 
-	for srcNode, destMap := range ng.networkMap {
+	for srcNode, destMap := range ng.outgoingMap {
 		for destNode := range destMap {
 			nwGraphMsg.Edges = append(nwGraphMsg.Edges, nwGraphMsgEdge{SourceNode: Node{
 				Name:             srcNode,
@@ -493,25 +469,13 @@ func (ng *NetworkGraph) makeNetworkGraphMessage() interface{} {
 		}
 	}
 
-	// for srcNode, destMap := range ng.outgoingMap {
-	// 	for destNode := range destMap {
-	// 		nwGraphMsg.Edges = append(nwGraphMsg.Edges, nwGraphMsgEdge{SourceNode: srcNode, DestNode: destNode})
-	// 	}
-	// }
-
-	// for srcNode, destMap := range ng.incomingMap {
-	// 	for destNode := range destMap {
-	// 		if _, exists := globalNwGraph[destNode][srcNode]; !exists {
-	// 			nwGraphMsg.Edges = append(nwGraphMsg.Edges, nwGraphMsgEdge{SourceNode: destNode, DestNode: srcNode})
-	// 		}
-	// 	}
-	// }
-
 	return nwGraphMsg
 }
 
+// Network graph refresh service main goroutine
 func (ng *NetworkGraph) Run(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
+	// dequeue telemetry events in a separate go routine
 	go ng.dequeueTelemetryEvents(ctx)
 
 	for {
@@ -520,28 +484,36 @@ func (ng *NetworkGraph) Run(ctx context.Context, wg *sync.WaitGroup) {
 			log.Info("Terminating network graph refresh service")
 			return
 		case hit := <-ng.dequeChan:
+			// calculate additions and deletions for new telemetry events dequeued
 			additions, deletions := ng.calculateMapDelta(hit)
 			ng.esClient.metrics.metricsMutex.RLock()
-			// log.Debug("TelemetryMessageQueue processing latency: ", ng.messageLatency)
+			// check if we need to enter catchup state
 			if ng.messageLatency > float64(CurrentConfig.MessageQueueThresholdLatency) {
 				ng.catchup = true
 				ng.esClient.metrics.metricsMutex.RUnlock()
 				continue
 			}
 			ng.esClient.metrics.metricsMutex.RUnlock()
+
+			// switch to normal state because the catchup is over
+			// send the current network graph to all clients
 			if ng.catchup {
 				ng.catchup = false
 				message := ng.makeNetworkGraphMessage()
 				ng.handler.Send <- message
 				continue
 			}
+
+			// stream only the additions and deletions to the clients
 			for _, message := range additions {
 				ng.handler.Send <- message
 			}
 			for _, message := range deletions {
 				ng.handler.Send <- message
 			}
+
 		case client := <-ng.handler.bootstrapChan:
+			// send the network graph to the clients who need to be bootstrapped
 			if !ng.catchup {
 				message := ng.makeNetworkGraphMessage()
 				ng.handler.unicastMessage(message, client)
