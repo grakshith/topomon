@@ -15,7 +15,7 @@ func ConfigureURLS(handler *ConnectionHandler, pClient *PromClient) *mux.Router 
 	router.HandleFunc("/ws", handler.ServeHTTP)
 	router.HandleFunc("/", redirectToIndex)
 	router.PathPrefix("/dashboard/").Handler(http.StripPrefix("/dashboard/", http.FileServer(http.Dir("."))))
-	router.HandleFunc("/metrics", pClient.metricsAdd)
+	router.HandleFunc("/metrics/", pClient.metricsAdd)
 
 	return router
 }
