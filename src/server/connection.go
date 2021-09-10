@@ -9,7 +9,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/algorand/go-deadlock"
 	"github.com/algorand/websocket"
 )
 
@@ -106,8 +105,7 @@ type ConnectionHandler struct {
 	ctx context.Context
 
 	// map of the active clients
-	clients     map[*Client]bool
-	clientMutex deadlock.RWMutex
+	clients map[*Client]bool
 
 	// client join channel
 	join chan *Client
@@ -139,9 +137,6 @@ const pongWait = 20 * time.Second
 // ping interval
 const pingPeriod = pongWait / 2
 
-// client write deadline
-const writeDeadline = 10 * time.Second
-
 func MakeConnectionHandler(ctx context.Context) *ConnectionHandler {
 	handler := &ConnectionHandler{
 		ctx:           ctx,
@@ -155,12 +150,7 @@ func MakeConnectionHandler(ctx context.Context) *ConnectionHandler {
 }
 
 func (handler *ConnectionHandler) unicastMessage(message interface{}, client *Client) {
-	// err := client.conn.WriteJSON(message)
 	client.send <- message
-	// if err != nil {
-	// 	log.Print("Error sending to client: ", err)
-	// 	handler.leave <- client
-	// }
 }
 
 func (handler *ConnectionHandler) broadcastMessage(message interface{}) {
@@ -179,11 +169,11 @@ func (handler *ConnectionHandler) Run(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		case client := <-handler.join:
 			log.Info("Client join: ", client.conn.RemoteAddr().String())
+			// bootstrap the client with the network graph
 			handler.bootstrapChan <- client
 			handler.clients[client] = true
 		case client := <-handler.leave:
 			log.Info("Client leave: ", client.conn.RemoteAddr().String())
-			// client.conn.Close()
 			delete(handler.clients, client)
 		case message := <-handler.Send:
 			handler.broadcastMessage(message)
@@ -202,7 +192,6 @@ func (client *Client) readComms(ctx context.Context) {
 			client.handler.leave <- client
 		}
 		close(client.send)
-		// client.conn.Close()
 	}()
 
 	for {
@@ -226,7 +215,6 @@ func (client *Client) writeComms(ctx context.Context) {
 	defer func() {
 		log.Info("Leaving writeComms: ", client.conn.RemoteAddr().String())
 		ticker.Stop()
-		// close(client.send)
 		client.conn.Close()
 	}()
 
@@ -236,16 +224,13 @@ func (client *Client) writeComms(ctx context.Context) {
 			client.conn.WriteMessage(websocket.CloseMessage, []byte{})
 			return
 		case <-ticker.C:
-			// client.conn.SetWriteDeadline(time.Now().Add(writeDeadline))
 			if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				log.Info("Error writing to client: ", err)
 				return
 			}
 			log.Debug("Sent ping to client: ", client.conn.RemoteAddr().String())
 		case message, ok := <-client.send:
-			// client.conn.SetWriteDeadline(time.Now().Add(writeDeadline))
 			if !ok {
-				// client.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
@@ -259,19 +244,6 @@ func (client *Client) writeComms(ctx context.Context) {
 			}
 
 			w.Write(jsonMessage)
-			// w.Write([]byte("\n"))
-
-			// check if there are more messages already queued
-			// queuedSize := len(client.send)
-			// for i := 0; i < queuedSize; i++ {
-			// 	message := <-client.send
-			// 	jsonMessage, err := json.Marshal(message)
-			// 	if err != nil {
-			// 		log.Error("Error while marshalling message: ", err)
-			// 	}
-			// 	w.Write(jsonMessage)
-			// 	w.Write([]byte("\n"))
-			// }
 
 			if err := w.Close(); err != nil {
 				return
