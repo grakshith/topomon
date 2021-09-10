@@ -15,12 +15,12 @@ import (
 )
 
 type PromClient struct {
-	queryStringsMu deadlock.RWMutex
+	queryStringsMu deadlock.RWMutex // mutex to synchronize changes to query strings
 	prefixURL      *url.URL
 	httpClient     *http.Client
-	handler        *ConnectionHandler
+	handler        *ConnectionHandler // connection handler to talk to the client
 	queryStrings   []string
-	restartChan    chan bool
+	restartChan    chan bool // used to signal metrics service restarts
 }
 
 // PromQueryResp stores the response from the metrics server
@@ -29,6 +29,7 @@ type PromQueryResp struct {
 	Data   QueryRespData
 }
 
+// Prometheus query response
 type QueryRespData struct {
 	ResultType    string
 	RawResults    []json.RawMessage `json:"result"`
@@ -36,6 +37,8 @@ type QueryRespData struct {
 }
 
 // Different types of results
+
+// Struct to parse vector result json response from Prometheus
 type VectorResult struct {
 	Metric struct {
 		Instance         string
@@ -44,6 +47,7 @@ type VectorResult struct {
 	Value [2]interface{}
 }
 
+// Metrics message consists of the metric name, and a map consisting of the metrics for each host
 type MetricsMessage struct {
 	MessageType string            `json:"message"`
 	MetricName  string            `json:"name"`
@@ -58,6 +62,7 @@ func MakeMetricsMessage(metricName string, queryResp QueryRespData) MetricsMessa
 		Metrics:     make(map[string]string),
 	}
 	switch resultType {
+	// this function can be extended to parse other result types
 	case "vector":
 		for _, vector := range queryResp.ParsedResults {
 			parsedVector, ok := vector.(VectorResult)
@@ -77,6 +82,7 @@ func MakeMetricsMessage(metricName string, queryResp QueryRespData) MetricsMessa
 
 var defaultMetrics = []string{"algod_tx_pool_count"}
 
+// makePromPrefix builds the URL for the prometheus query
 func makePromPrefix() *url.URL {
 	baseURL, err := url.Parse(CurrentConfig.MetricsEndpoint)
 	if err != nil {
@@ -102,6 +108,7 @@ func MakePromClient(handler *ConnectionHandler) *PromClient {
 	}
 }
 
+// QueryMetrics queies prometheus with the query string and parses the response
 func (pClient *PromClient) QueryMetrics(queryString string) (*QueryRespData, error) {
 	queryURL, err := url.Parse("")
 	if err != nil {
@@ -132,6 +139,7 @@ func (pClient *PromClient) QueryMetrics(queryString string) (*QueryRespData, err
 	}
 
 	switch queryResp.Data.ResultType {
+	// can be extended to support other result types
 	case "vector":
 		for _, rawMessage := range queryResp.Data.RawResults {
 			var vector VectorResult
@@ -156,7 +164,7 @@ func (pClient *PromClient) sendMetrics(ctx context.Context, metricQueryString st
 		case <-ticker.C:
 			result, err := pClient.QueryMetrics(metricQueryString)
 			if err != nil {
-				break
+				continue
 			}
 			metricsMessage := MakeMetricsMessage(metricQueryString, *result)
 			pClient.handler.Send <- metricsMessage
@@ -167,6 +175,7 @@ func (pClient *PromClient) sendMetrics(ctx context.Context, metricQueryString st
 func (pClient *PromClient) Run(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	// derive a new context for the metrics service
 	metricsCtx, cancel := context.WithCancel(ctx)
 	pClient.startMetrics(metricsCtx)
 
