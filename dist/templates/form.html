@@ -1,0 +1,10 @@
+{{if .Error}}
+<h1>Error: {{.Error}}</h1>
+{{else}}
+<h1>{{.Name}}</h1>
+<form method="POST">
+    <label>data</label><br />
+    <textarea name="data">{{.Data}}</textarea><br />
+    <input type="submit">
+</form>
+{{end}}
