@@ -9,9 +9,7 @@ require (
 	github.com/elastic/go-elasticsearch/v6 v6.8.10
 	github.com/enriquebris/goconcurrentqueue v0.6.0
 	github.com/gorilla/mux v1.8.0
-	github.com/gorilla/websocket v1.4.2 // indirect
-	github.com/prometheus/client_golang v1.11.0
-	github.com/prometheus/common v0.26.0 // indirect
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
+	golang.org/x/sys v0.0.0-20210603081109-ebe580a85c40 // indirect
 )
